@@ -1,0 +1,49 @@
+# Render Blueprint for InsightPDF AI backend.
+# Import via render.com → New → Blueprint → pick this repo.
+#
+# After import, set these in the Render dashboard (Service → Environment):
+#   GOOGLE_API_KEY    = your Gemini key
+#   FRONTEND_ORIGINS  = comma-separated list of frontend URLs (e.g. https://insightpdf.vercel.app)
+#
+# Notes on plan + disk:
+#   - "plan: free" gives a free Web Service that sleeps after 15 min idle.
+#   - Persistent disks require Starter ($7/mo) or higher on current Render.
+#     The disk block below is kept so vectors + uploaded PDFs survive restarts.
+#     If you want to stay on the free tier, COMMENT OUT the `disk:` block and
+#     change UPLOAD_DIR/CHROMA_DIR back to `uploads`/`chroma_db` — your data
+#     will reset on each deploy.
+
+services:
+  - type: web
+    name: insightpdf-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      - key: CHROMA_DIR
+        value: /var/data/chroma_db
+      - key: GEMINI_CHAT_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_EMBED_MODEL
+        value: gemini-embedding-001
+      - key: CHUNK_SIZE
+        value: "1000"
+      - key: CHUNK_OVERLAP
+        value: "150"
+      - key: TOP_K
+        value: "4"
+      - key: PYTHON_VERSION
+        value: 3.12.7
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1

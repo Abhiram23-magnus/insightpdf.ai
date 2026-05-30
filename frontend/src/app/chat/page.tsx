@@ -9,7 +9,7 @@ import Sidebar from "@/components/Sidebar";
 import PdfViewer from "@/components/PdfViewer";
 import ChatInterface from "@/components/ChatInterface";
 import SourcesPanel from "@/components/SourcesPanel";
-import { getHistory } from "@/lib/api";
+import { getHistory, listDocuments } from "@/lib/api";
 import type { HistoryItem, Source, UploadResponse } from "@/types";
 
 function ChatDashboard() {
@@ -31,8 +31,36 @@ function ChatDashboard() {
     const stored = sessionStorage.getItem("activeDocument");
     if (stored) {
       const parsed = JSON.parse(stored) as UploadResponse;
-      if (parsed.document_id === documentId) setDoc(parsed);
+      if (parsed.document_id === documentId) {
+        setDoc(parsed);
+        // Load any existing history for this document.
+        getHistory(documentId)
+          .then(setHistory)
+          .catch(() => setHistory([]));
+        return;
+      }
     }
+
+    // Fallback: fetch from backend if not found in session storage (e.g. direct navigation)
+    listDocuments()
+      .then((docs) => {
+        const found = docs.find((d) => d.document_id === documentId);
+        if (found) {
+          setDoc({
+            document_id: found.document_id,
+            filename: found.filename,
+            num_pages: found.num_pages,
+            num_chunks: found.num_chunks,
+            message: "Document loaded from server.",
+          });
+        } else {
+          router.push("/");
+        }
+      })
+      .catch(() => {
+        router.push("/");
+      });
+
     // Load any existing history for this document.
     getHistory(documentId)
       .then(setHistory)
