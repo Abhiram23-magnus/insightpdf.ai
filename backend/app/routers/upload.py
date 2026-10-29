@@ -24,6 +24,7 @@ from app.core.config import get_settings
 from app.models.schemas import DocumentItem, DocumentsResponse, UploadResponse
 from app.services import pdf_service, storage_service
 from app.services.supabase_client import SupabaseError
+from app.services.vector_store import friendly_ai_error
 
 router = APIRouter(prefix="/api", tags=["upload"])
 log = logging.getLogger("uvicorn.error")
@@ -114,10 +115,7 @@ async def upload_pdf(
         if "RESOURCE_EXHAUSTED" in str(exc) or "429" in str(exc):
             raise HTTPException(
                 status_code=429,
-                detail=(
-                    "The free Gemini quota is used up for now. Wait a minute and "
-                    "try again (if it keeps happening, the daily limit may be reached)."
-                ),
+                detail=friendly_ai_error(exc, ""),
             )
         raise HTTPException(status_code=500, detail="Processing failed. Please try again.")
 

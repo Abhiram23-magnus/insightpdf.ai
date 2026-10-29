@@ -19,6 +19,7 @@ from fastapi.responses import StreamingResponse
 from app.core.auth import CurrentUser, current_user
 from app.models.schemas import ChatRequest, ChatResponse, HistoryItem, HistoryResponse, Source
 from app.services import chat_service, storage_service
+from app.services.vector_store import friendly_ai_error
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -37,10 +38,7 @@ def _require_ready_document(token: str, document_id: str) -> dict:
 
 
 def _friendly_ai_error(exc: Exception) -> str:
-    text = str(exc)
-    if "RESOURCE_EXHAUSTED" in text or "429" in text:
-        return "The free AI quota is used up for now. Wait a minute and try again."
-    return "The AI couldn't answer just now. Please try again."
+    return friendly_ai_error(exc, "The AI couldn't answer just now. Please try again.")
 
 
 @router.post("/chat", response_model=ChatResponse)

@@ -58,6 +58,34 @@ def _retry_delay(exc: Exception, attempt: int) -> float:
     return min(15 * (attempt + 1), 65)
 
 
+MAX_WAIT_SECONDS = 90  # longer than this means a daily quota, not a per-minute one
+
+
+class QuotaExhausted(Exception):
+    """Gemini's free daily quota is used up; waiting won't help today."""
+
+    def __init__(self, retry_after: float):
+        self.retry_after = retry_after
+        super().__init__(f"RESOURCE_EXHAUSTED: daily quota, retry in {retry_after:.0f}s")
+
+    def friendly(self) -> str:
+        hours = self.retry_after / 3600
+        when = f"about {hours:.0f} hours" if hours >= 1.5 else "about an hour" if hours >= 0.75 else "a few minutes"
+        return (
+            "Today's free Gemini AI quota is used up, so new PDFs and questions can't be "
+            f"processed right now. It resets in {when}."
+        )
+
+
+def friendly_ai_error(exc: Exception, fallback: str) -> str:
+    if isinstance(exc, QuotaExhausted):
+        return exc.friendly()
+    text = str(exc)
+    if "RESOURCE_EXHAUSTED" in text or "429" in text:
+        return "The free AI quota is busy right now. Wait a minute and try again."
+    return fallback
+
+
 def with_rate_limit_retry(fn, *args, **kwargs):
     """Call fn, waiting and retrying when Gemini returns a 429."""
     for attempt in range(MAX_RETRIES + 1):
@@ -67,6 +95,9 @@ def with_rate_limit_retry(fn, *args, **kwargs):
             if not _is_rate_limit(exc) or attempt == MAX_RETRIES:
                 raise
             delay = _retry_delay(exc, attempt)
+            if delay > MAX_WAIT_SECONDS:
+                log.warning("Gemini daily quota exhausted; retry after %.0fs", delay)
+                raise QuotaExhausted(delay) from exc
             log.warning("Gemini rate limit (attempt %d); waiting %.0fs", attempt + 1, delay)
             time.sleep(delay)
 
