@@ -16,6 +16,8 @@ export interface UploadItem {
   state: UploadState;
   progress: number; // 0..1, upload only
   error?: string;
+  /** True when retrying can't help (wrong type, empty, too big, not a real PDF). */
+  permanent?: boolean;
   result?: UploadResponse;
 }
 
@@ -71,6 +73,7 @@ export function useUploadQueue({
             progress: 0,
             state: error ? "error" : dup ? "duplicate" : "queued",
             error: error ?? undefined,
+            permanent: !!error,
           };
         });
         return [...prev, ...added];
@@ -102,9 +105,12 @@ export function useUploadQueue({
         if (err instanceof DOMException && err.name === "AbortError") {
           setItems((prev) => prev.filter((it) => it.id !== next.id));
         } else {
+          // 400/413/422 = the file itself is the problem; retrying won't help.
+          const status = err instanceof ApiError ? err.status : 0;
           patch(next.id, {
             state: "error",
             error: err instanceof ApiError ? err.message : "Upload failed. Please try again.",
+            permanent: status === 400 || status === 413 || status === 422,
           });
         }
       })

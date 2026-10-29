@@ -14,6 +14,7 @@ import SourcesPanel from "@/components/SourcesPanel";
 import ThemeToggle from "@/components/ThemeToggle";
 import { buttonClass, Spinner } from "@/components/ui";
 import { getHistory, listDocuments, pdfFileUrl } from "@/lib/api";
+import { plural } from "@/lib/format";
 import type { DocumentItem, HistoryItem, Source } from "@/types";
 
 type Status = "loading" | "ready" | "missing" | "error";
@@ -153,7 +154,7 @@ function Workspace() {
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-[15px] font-semibold">{doc?.filename}</h1>
           <p className="text-xs text-faint">
-            {doc?.num_pages} pages · {doc?.num_chunks} passages indexed
+            {plural(doc?.num_pages ?? 0, "page")} · {plural(doc?.num_chunks ?? 0, "passage")} indexed
           </p>
         </div>
         <a href={pdfFileUrl(documentId)} target="_blank" rel="noreferrer" className={`hidden sm:inline-flex ${buttonClass("secondary", "sm")}`}>

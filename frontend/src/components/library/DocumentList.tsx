@@ -84,7 +84,7 @@ export default function DocumentList({
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium">{doc.filename}</span>
                     <span className="mt-0.5 block font-mono text-xs text-faint">
-                      {doc.num_pages} pages · {formatDate(doc.created_at)}
+                      {doc.num_pages === 1 ? "1 page" : `${doc.num_pages} pages`} · {formatDate(doc.created_at)}
                     </span>
                   </span>
                 </Link>

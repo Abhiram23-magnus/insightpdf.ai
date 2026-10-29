@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { Button, IconButton, Spinner } from "@/components/ui";
+import { plural } from "@/lib/format";
 import type { UploadItem } from "./useUploadQueue";
 
 function formatSize(bytes: number) {
@@ -95,7 +96,7 @@ function Row({
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
               Ready
             </span>
-            <span className="text-muted">{result.num_pages} pages</span>
+            <span className="text-muted">{plural(result.num_pages, "page")}</span>
             <Link href={`/chat?doc=${result.document_id}`} className="font-medium text-brand hover:underline">
               Open →
             </Link>
@@ -113,7 +114,7 @@ function Row({
       </div>
 
       <div className="flex items-center gap-1">
-        {failed && (
+        {failed && !item.permanent && (
           <Button size="sm" onClick={onRetry}>Retry</Button>
         )}
         {state === "uploading" || state === "queued" ? (
