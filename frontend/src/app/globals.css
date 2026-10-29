@@ -2,68 +2,105 @@
 @tailwind components;
 @tailwind utilities;
 
-/*
-  Design tokens as CSS variables.
-  We define light values by default and override them under .dark.
-  Components reference these via Tailwind's arbitrary value syntax,
-  e.g. bg-[var(--surface)].
-*/
+/* ---------------------------------------------------------------
+   Design tokens. Light values on :root, dark values under .dark.
+   Dark is the default theme (set before paint in layout.tsx).
+   --------------------------------------------------------------- */
 :root {
-  --bg: #faf8f5;
+  --bg: #f8fafc;
   --surface: #ffffff;
-  --surface-2: #f3efe9;
-  --border: #e6e0d6;
-  --text: #1a1d23;
-  --text-muted: #6b6f76;
-  --accent: #d97706;
-  --accent-soft: #fbbf24;
+  --surface-2: #f1f5f9;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-2: #475569;
+  --text-3: #64748b;
+  --brand: #4f46e5;          /* links, focus, icons */
+  --brand-solid: #4f46e5;    /* filled buttons */
+  --brand-soft: rgba(79, 70, 229, 0.09);
+  --brand-text: #4338ca;
+  --violet: #8b5cf6;
+  --cite: #0e7490;
+  --cite-soft: rgba(6, 182, 212, 0.12);
+  --success: #15803d;
+  --success-soft: rgba(22, 163, 74, 0.1);
+  --danger: #b91c1c;
+  --danger-soft: rgba(220, 38, 38, 0.08);
+  --bubble: #eef2ff;
+  --glow: rgba(79, 70, 229, 0.12);
+  color-scheme: light;
 }
 
 .dark {
-  --bg: #0f1115;
-  --surface: #171a21;
-  --surface-2: #1f2430;
-  --border: #2a2f3a;
-  --text: #f4f1ec;
-  --text-muted: #9aa0aa;
-  --accent: #f5a524;
-  --accent-soft: #fbbf24;
+  --bg: #0b1020;
+  --surface: #111827;
+  --surface-2: #172033;
+  --border: #263449;
+  --border-strong: #3b4a66;
+  --text: #f8fafc;
+  --text-2: #94a3b8;
+  --text-3: #7c8ba1; /* lighter than slate-500 so small text passes 4.5:1 */
+  --brand: #818cf8;
+  --brand-solid: #6366f1;
+  --brand-soft: rgba(129, 140, 248, 0.13);
+  --brand-text: #c7d2fe;
+  --violet: #a78bfa;
+  --cite: #22d3ee;
+  --cite-soft: rgba(34, 211, 238, 0.12);
+  --success: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.12);
+  --danger: #fca5a5;
+  --danger-soft: rgba(248, 113, 113, 0.12);
+  --bubble: #1e2a44;
+  --glow: rgba(129, 140, 248, 0.2);
+  color-scheme: dark;
 }
 
 html,
 body {
-  background-color: var(--bg);
+  background: var(--bg);
   color: var(--text);
 }
 
 body {
-  font-feature-settings: "ss01", "cv01";
   -webkit-font-smoothing: antialiased;
 }
 
-/* A subtle grain/noise texture overlay for atmosphere (not flat color). */
-.grain::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.035;
-  z-index: 1;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+/* Gentle color change when switching themes (colors only, never layout). */
+.theme-transition,
+.theme-transition * {
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease !important;
 }
 
-/* Custom scrollbar to match the theme. */
+/* One visible focus style everywhere. */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+::selection {
+  background: var(--brand-soft);
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 6px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+  background: var(--border-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

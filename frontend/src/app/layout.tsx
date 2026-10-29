@@ -1,54 +1,40 @@
-// app/layout.tsx
-// The root layout wraps every page. We load two Google fonts here:
-//   - Fraunces (a characterful display serif) for headings/brand
-//   - Geist Sans-like "Outfit" for body text
-// and expose them as CSS variables that Tailwind picks up.
-
-import type { Metadata } from "next";
-import { Fraunces, Outfit } from "next/font/google";
+// app/layout.tsx — wraps every page.
+import type { Metadata, Viewport } from "next";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
+import Providers from "@/components/Providers";
 import "./globals.css";
 
-const display = Fraunces({
-  subsets: ["latin"],
-  weight: ["400", "600", "700"],
-  variable: "--font-display",
-});
-
-const body = Outfit({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600"],
-  variable: "--font-body",
-});
-
 export const metadata: Metadata = {
-  title: "InsightPDF AI — Turn Documents into Actionable Insights",
+  title: "InsightPDF — Your documents, understood",
   description:
-    "Upload a PDF and ask questions about it. Powered by RAG, LangChain, ChromaDB and Google Gemini.",
+    "Upload a PDF and ask it anything. Answers stream in and cite the exact page they came from.",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0B1020" },
+    { media: "(prefers-color-scheme: light)", color: "#F8FAFC" },
+  ],
+};
+
+// Runs before the page paints: applies the saved theme (dark by default)
+// so there's never a flash of the wrong colors.
+const themeScript = `(function(){try{var t=localStorage.getItem("theme");if(t!=="light"){document.documentElement.classList.add("dark")}}catch(e){document.documentElement.classList.add("dark")}})();`;
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    // suppressHydrationWarning: the script below may add the "dark" class
-    // before React loads, which is expected and not a real mismatch.
     <html
       lang="en"
-      className={`${display.variable} ${body.variable}`}
+      className={`${GeistSans.variable} ${GeistMono.variable}`}
       suppressHydrationWarning
     >
       <head>
-        {/* Apply the saved theme BEFORE the page paints, so there's no
-            white flash when someone who chose dark mode reloads. */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("theme");if(!t){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}if(t==="dark")document.documentElement.classList.add("dark")}catch(e){}})();`,
-          }}
-        />
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className="font-sans antialiased grain">{children}</body>
+      <body className="min-h-screen bg-bg font-sans text-ink antialiased">
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

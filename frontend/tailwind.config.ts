@@ -1,47 +1,62 @@
 import type { Config } from "tailwindcss";
 
+// All colors come from CSS variables in globals.css, so light and dark
+// themes are one class switch on <html>. Change a token there, not here.
+// tok() wraps a variable so opacity shortcuts like `bg-cite/70` still work.
+const tok = (name: string) =>
+  `color-mix(in srgb, var(--${name}) calc(<alpha-value> * 100%), transparent)`;
+
 const config: Config = {
-  // "class" strategy: dark mode turns on when <html> has class="dark"
   darkMode: "class",
-  content: [
-    "./src/app/**/*.{ts,tsx}",
-    "./src/components/**/*.{ts,tsx}",
-  ],
+  content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       fontFamily: {
-        // Distinctive pairing: a characterful display + clean grotesque body.
-        display: ["var(--font-display)", "serif"],
-        sans: ["var(--font-body)", "system-ui", "sans-serif"],
+        sans: ["var(--font-geist-sans)", "system-ui", "sans-serif"],
+        mono: ["var(--font-geist-mono)", "ui-monospace", "monospace"],
       },
       colors: {
-        // Brand palette: deep ink + warm amber accent (not the cliché purple).
-        ink: {
-          DEFAULT: "#0f1115",
-          soft: "#171a21",
-        },
-        amber: {
-          glow: "#f5a524",
-        },
+        bg: tok("bg"),
+        surface: tok("surface"),
+        "surface-2": tok("surface-2"),
+        line: tok("border"),
+        "line-strong": tok("border-strong"),
+        ink: tok("text"),
+        muted: tok("text-2"),
+        faint: tok("text-3"),
+        brand: tok("brand"),
+        "brand-solid": tok("brand-solid"),
+        "brand-soft": tok("brand-soft"),
+        "brand-text": tok("brand-text"),
+        violet: tok("violet"),
+        cite: tok("cite"),
+        "cite-soft": tok("cite-soft"),
+        success: tok("success"),
+        "success-soft": tok("success-soft"),
+        danger: tok("danger"),
+        "danger-soft": tok("danger-soft"),
+        bubble: tok("bubble"),
+      },
+      borderRadius: {
+        DEFAULT: "8px",
       },
       keyframes: {
-        "fade-up": {
-          "0%": { opacity: "0", transform: "translateY(12px)" },
-          "100%": { opacity: "1", transform: "translateY(0)" },
+        blink: { "50%": { opacity: "0" } },
+        shimmer: {
+          from: { transform: "translateX(-100%)" },
+          to: { transform: "translateX(100%)" },
         },
-        "fade-in": {
-          "0%": { opacity: "0" },
-          "100%": { opacity: "1" },
+        indeterminate: {
+          from: { transform: "translateX(-100%)" },
+          to: { transform: "translateX(250%)" },
         },
-        "pulse-dot": {
-          "0%, 100%": { opacity: "0.3" },
-          "50%": { opacity: "1" },
-        },
+        breathe: { "0%,100%": { opacity: "0.35" }, "50%": { opacity: "1" } },
       },
       animation: {
-        "fade-up": "fade-up 0.5s ease-out forwards",
-        "fade-in": "fade-in 0.4s ease-out forwards",
-        "pulse-dot": "pulse-dot 1.2s ease-in-out infinite",
+        blink: "blink 1s step-end infinite",
+        shimmer: "shimmer 1.6s linear infinite",
+        indeterminate: "indeterminate 1.4s ease-in-out infinite",
+        breathe: "breathe 1.4s ease-in-out infinite",
       },
     },
   },
