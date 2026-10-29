@@ -12,9 +12,11 @@ import Dropzone from "@/components/library/Dropzone";
 import UploadQueue from "@/components/library/UploadQueue";
 import DocumentList from "@/components/library/DocumentList";
 import { useUploadQueue } from "@/components/library/useUploadQueue";
+import { RequireAuth } from "@/components/AuthProvider";
+import UserMenu from "@/components/UserMenu";
 import { Button, IconButton, Logo } from "@/components/ui";
 import { ApiError, deleteDocument, getLimits, listDocuments, wakeBackend } from "@/lib/api";
-import type { DocumentItem } from "@/types";
+import type { DocumentItem, Limits } from "@/types";
 
 type Sort = "newest" | "oldest" | "name" | "pages";
 const PAGE_SIZE = 20;
@@ -45,9 +47,18 @@ function Skeleton() {
 }
 
 export default function LibraryPage() {
+  return (
+    <RequireAuth>
+      <Library />
+    </RequireAuth>
+  );
+}
+
+function Library() {
   const [docs, setDocs] = useState<DocumentItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [maxMb, setMaxMb] = useState(25);
+  const [limits, setLimits] = useState<Limits | null>(null);
+  const maxMb = limits?.max_upload_mb ?? 25;
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("newest");
   const [view, setView] = useState<"list" | "grid">("list");
@@ -70,7 +81,7 @@ export default function LibraryPage() {
     wakeBackend();
     const ctrl = new AbortController();
     load(ctrl.signal);
-    getLimits().then((l) => setMaxMb(l.max_upload_mb)).catch(() => {});
+    getLimits().then(setLimits).catch(() => {});
     try {
       const saved = localStorage.getItem("library-view");
       if (saved === "grid" || saved === "list") setView(saved);
@@ -83,7 +94,10 @@ export default function LibraryPage() {
   const queue = useUploadQueue({
     maxMb,
     existing: docs ?? [],
-    onUploaded: () => load(),
+    onUploaded: () => {
+      load();
+      getLimits().then(setLimits).catch(() => {});
+    },
   });
 
   const debounced = useDebounced(query, 150);
@@ -119,6 +133,7 @@ export default function LibraryPage() {
       // Removed only after the server confirms — no optimistic delete to roll back.
       setDocs((prev) => (prev ?? []).filter((d) => d.document_id !== toDelete.document_id));
       setToDelete(null);
+      getLimits().then(setLimits).catch(() => {});
     } catch (err) {
       setDeleteError(err instanceof ApiError ? err.message : "Couldn't delete this document.");
     } finally {
@@ -130,13 +145,16 @@ export default function LibraryPage() {
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar docCount={docs ? docs.length : null} />
+      <Sidebar docCount={docs ? docs.length : null} limits={limits} />
 
       <div className="min-w-0 flex-1">
         {/* Mobile top bar */}
         <header className="flex items-center justify-between border-b border-line bg-surface px-4 py-3 lg:hidden">
           <Logo />
-          <ThemeToggle />
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            <UserMenu compact />
+          </div>
         </header>
 
         <main className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-7 sm:px-8 lg:py-9">
@@ -253,8 +271,8 @@ export default function LibraryPage() {
         title="Delete this document?"
         body={
           <>
-            <span className="font-medium text-ink">{toDelete?.filename}</span> and its chat history will be
-            permanently removed. This can&apos;t be undone.
+            <span className="font-medium text-ink">{toDelete?.filename}</span>, its chat history and the stored
+            file will be permanently removed. This can&apos;t be undone.
           </>
         }
         confirmLabel="Delete"

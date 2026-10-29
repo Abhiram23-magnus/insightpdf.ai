@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { IconButton } from "@/components/ui";
-import { pdfFileUrl } from "@/lib/api";
+import { openPdf } from "@/lib/api";
 import type { DocumentItem } from "@/types";
 
 export function formatDate(iso: string) {
@@ -39,16 +39,9 @@ function ReadyBadge() {
 function Actions({ doc, onDelete }: { doc: DocumentItem; onDelete: (d: DocumentItem) => void }) {
   return (
     <div className="flex items-center justify-end gap-0.5">
-      <a
-        href={pdfFileUrl(doc.document_id)}
-        target="_blank"
-        rel="noreferrer"
-        aria-label={`Download ${doc.filename}`}
-        title="Open original PDF"
-        className="grid h-8 w-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-ink"
-      >
+      <IconButton label={`Open original ${doc.filename}`} size="sm" onClick={() => openPdf(doc.document_id).catch(() => {})}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v12M6 10l6 6 6-6M4 20h16" /></svg>
-      </a>
+      </IconButton>
       <IconButton label={`Delete ${doc.filename}`} size="sm" onClick={() => onDelete(doc)} className="hover:!text-danger">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" /></svg>
       </IconButton>

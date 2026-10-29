@@ -16,9 +16,15 @@ class Settings(BaseSettings):
     # --- Secrets / external services ---
     google_api_key: str = ""
 
-    # --- Storage locations ---
-    upload_dir: str = "uploads"
-    chroma_dir: str = "chroma_db"
+    # --- Supabase (accounts, private file storage, Postgres + pgvector) ---
+    # The publishable key is safe to expose; every request also carries the
+    # signed-in user's own token, so row-level security decides what they see.
+    supabase_url: str = ""
+    supabase_publishable_key: str = ""
+    storage_bucket: str = "pdfs"
+
+    # Embedding size stored in Postgres (must match vector(768) in the schema).
+    embed_dimensions: int = 768
 
     # --- RAG tuning knobs ---
     chunk_size: int = 1000
@@ -27,6 +33,7 @@ class Settings(BaseSettings):
 
     # --- Upload limits ---
     max_upload_mb: int = 25
+    max_documents_per_user: int = 50
 
     # --- Model names ---
     gemini_chat_model: str = "gemini-2.5-flash"

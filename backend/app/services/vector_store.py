@@ -1,20 +1,18 @@
 """
 vector_store.py
 ---------------
-A thin wrapper around ChromaDB + Google Gemini embeddings.
-
-WHAT IS CHROMADB?
-  A "vector database". A normal database searches by exact match
-  (WHERE name = 'Bob'). A vector database searches by MEANING / similarity.
-  You give it a question vector and it returns the chunks whose vectors are
-  closest — i.e. the most semantically relevant pieces of your PDF.
+Embeddings (Google Gemini) + vector search (Postgres pgvector on Supabase).
 
 WHAT ARE EMBEDDINGS?
   A function that turns text into a fixed-length list of numbers (a vector).
-  Google's text-embedding-004 model does this for us. Text with similar
-  meaning produces vectors that are near each other in space.
+  Text with similar meaning produces vectors that are near each other.
+  We ask Gemini for 768-number vectors, matching the `vector(768)` column.
 
-We persist Chroma to disk (CHROMA_DIR) so your data survives server restarts.
+WHERE DO THEY LIVE?
+  In the `chunks` table on Supabase, next to the passage text and its page.
+  Every row is owned by one user and protected by row-level security, and
+  search runs through the `match_chunks` database function as that user,
+  so a search can only ever see the caller's own passages.
 """
 
 from __future__ import annotations
@@ -22,10 +20,10 @@ from __future__ import annotations
 import re
 import time
 
-from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 from app.core.config import get_settings
+from app.services import supabase_client
 
 
 # --- Gemini free-tier rate limiting -----------------------------------------
@@ -37,6 +35,7 @@ from app.core.config import get_settings
 EMBED_BATCH_SIZE = 80      # chunks per batch (under the 100/min limit)
 RATE_WINDOW_SECONDS = 61   # one batch per window
 MAX_RETRIES = 5
+INSERT_BATCH_SIZE = 100    # rows per insert request to Postgres
 
 
 def _is_rate_limit(exc: Exception) -> bool:
@@ -65,101 +64,74 @@ def with_rate_limit_retry(fn, *args, **kwargs):
             time.sleep(_retry_delay(exc, attempt))
 
 
-class VectorStore:
-    """Handles embedding + storing + searching document chunks."""
+_embeddings: GoogleGenerativeAIEmbeddings | None = None
 
-    COLLECTION_NAME = "insightpdf_documents"
 
-    def __init__(self) -> None:
+def _embedder() -> GoogleGenerativeAIEmbeddings:
+    global _embeddings
+    if _embeddings is None:
         settings = get_settings()
-
-        # The embedding model. LangChain calls Gemini for us under the hood.
-        self._embeddings = GoogleGenerativeAIEmbeddings(
+        _embeddings = GoogleGenerativeAIEmbeddings(
             model=settings.gemini_embed_model,
             google_api_key=settings.google_api_key,
         )
+    return _embeddings
 
-        # The Chroma client, pointed at a folder on disk.
-        self._db = Chroma(
-            collection_name=self.COLLECTION_NAME,
-            embedding_function=self._embeddings,
-            persist_directory=settings.chroma_dir,
+
+def _vector_literal(values: list[float]) -> str:
+    """pgvector accepts vectors as text like '[0.1,0.2,...]'."""
+    return "[" + ",".join(f"{v:.7g}" for v in values) + "]"
+
+
+def embed_query(text: str) -> list[float]:
+    dims = get_settings().embed_dimensions
+    return with_rate_limit_retry(_embedder().embed_query, text, output_dimensionality=dims)
+
+
+def add_chunks(token: str, user_id: str, document_id: str, chunks: list[dict]) -> None:
+    """Embed every chunk (rate-limited) and store it in the `chunks` table."""
+    dims = get_settings().embed_dimensions
+    texts = [c["text"] for c in chunks]
+
+    for start in range(0, len(texts), EMBED_BATCH_SIZE):
+        batch_started = time.monotonic()
+        end = start + EMBED_BATCH_SIZE
+        vectors = with_rate_limit_retry(
+            _embedder().embed_documents, texts[start:end], output_dimensionality=dims
         )
-
-    def add_chunks(self, document_id: str, chunks: list[dict]) -> None:
-        """
-        Embed every chunk and store it.
-
-        We attach METADATA to each chunk:
-          - document_id : which PDF it belongs to (lets us filter searches)
-          - page        : page number (for the Sources panel)
-          - chunk_index : ordering within the document
-        """
-        texts = [c["text"] for c in chunks]
-        metadatas = [
+        rows = [
             {
                 "document_id": document_id,
+                "user_id": user_id,
                 "page": c["page"],
                 "chunk_index": c["chunk_index"],
+                "content": c["text"],
+                "embedding": _vector_literal(v),
             }
-            for c in chunks
+            for c, v in zip(chunks[start:end], vectors)
         ]
-        # Stable IDs prevent duplicates if the same doc is processed twice.
-        ids = [f"{document_id}-{c['chunk_index']}" for c in chunks]
+        for i in range(0, len(rows), INSERT_BATCH_SIZE):
+            supabase_client.insert(token, "chunks", rows[i : i + INSERT_BATCH_SIZE], returning=False)
 
-        # Embed + store in rate-limited batches (see note at top of file).
-        for start in range(0, len(texts), EMBED_BATCH_SIZE):
-            batch_started = time.monotonic()
-            end = start + EMBED_BATCH_SIZE
-            with_rate_limit_retry(
-                self._db.add_texts,
-                texts=texts[start:end],
-                metadatas=metadatas[start:end],
-                ids=ids[start:end],
-            )
-            # If more batches remain, wait out the rest of the minute.
-            if end < len(texts):
-                elapsed = time.monotonic() - batch_started
-                if elapsed < RATE_WINDOW_SECONDS:
-                    time.sleep(RATE_WINDOW_SECONDS - elapsed)
-
-    def search(self, document_id: str, query: str, top_k: int) -> list[dict]:
-        """
-        STEP (at question time) — RETRIEVE.
-        Find the `top_k` chunks most relevant to `query`, but ONLY within
-        the requested document (using a metadata filter).
-
-        Returns a list of dicts with the text + its metadata.
-        """
-        results = with_rate_limit_retry(
-            self._db.similarity_search,
-            query=query,
-            k=top_k,
-            filter={"document_id": document_id},
-        )
-
-        return [
-            {
-                "text": doc.page_content,
-                "page": doc.metadata.get("page", 0),
-                "chunk_index": doc.metadata.get("chunk_index", 0),
-            }
-            for doc in results
-        ]
-
-    def delete_document(self, document_id: str) -> None:
-        """Remove all chunks belonging to one document."""
-        self._db.delete(where={"document_id": document_id})
+        # If more batches remain, wait out the rest of the minute.
+        if end < len(texts):
+            elapsed = time.monotonic() - batch_started
+            if elapsed < RATE_WINDOW_SECONDS:
+                time.sleep(RATE_WINDOW_SECONDS - elapsed)
 
 
-# --- Singleton accessor ---
-# Building the embeddings client + Chroma connection is relatively expensive,
-# so we create ONE instance and reuse it across requests.
-_store: VectorStore | None = None
-
-
-def get_vector_store() -> VectorStore:
-    global _store
-    if _store is None:
-        _store = VectorStore()
-    return _store
+def search(token: str, document_id: str, query: str, top_k: int) -> list[dict]:
+    """
+    RETRIEVE: the `top_k` passages closest in meaning to `query`, only within
+    this document (and, through row-level security, only the caller's own).
+    """
+    vector = embed_query(query)
+    rows = supabase_client.rpc(
+        token,
+        "match_chunks",
+        {"p_document_id": document_id, "p_query": _vector_literal(vector), "p_k": top_k},
+    )
+    return [
+        {"text": r["content"], "page": r["page"], "chunk_index": r["chunk_index"]}
+        for r in rows
+    ]

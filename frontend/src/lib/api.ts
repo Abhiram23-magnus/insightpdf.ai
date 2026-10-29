@@ -1,6 +1,7 @@
 // lib/api.ts — every network call to the backend lives here.
 
-import type { ChatResponse, DocumentItem, HistoryItem, Source, UploadResponse } from "@/types";
+import type { ChatResponse, DocumentItem, HistoryItem, Limits, Source, UploadResponse } from "@/types";
+import { accessToken, supabase } from "@/lib/supabase";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
 
@@ -15,13 +16,31 @@ export class ApiError extends Error {
 const OFFLINE =
   "Can't reach the server. It may be waking up — wait a few seconds and try again.";
 
-async function request(input: string, init?: RequestInit): Promise<Response> {
+const SIGNED_OUT = "Your session has ended. Please sign in again.";
+
+/** Every API call carries the signed-in user's token; the server checks it. */
+async function authHeader(): Promise<Record<string, string>> {
+  const token = await accessToken();
+  if (!token) throw new ApiError(SIGNED_OUT, 401);
+  return { Authorization: `Bearer ${token}` };
+}
+
+/** A 401 means the session is gone (expired, or signed out elsewhere). */
+function onUnauthorized() {
+  supabase().auth.signOut().catch(() => {});
+}
+
+async function request(input: string, init: RequestInit = {}): Promise<Response> {
+  const headers = { ...(init.headers as Record<string, string> | undefined), ...(await authHeader()) };
+  let res: Response;
   try {
-    return await fetch(input, init);
+    res = await fetch(input, { ...init, headers });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") throw err;
     throw new ApiError(OFFLINE, 0);
   }
+  if (res.status === 401) onUnauthorized();
+  return res;
 }
 
 async function readError(res: Response): Promise<string> {
@@ -45,7 +64,7 @@ export function wakeBackend(): void {
   fetch(`${API_URL}/`).catch(() => {});
 }
 
-export async function getLimits(): Promise<{ max_upload_mb: number }> {
+export async function getLimits(): Promise<Limits> {
   return handle(await request(`${API_URL}/api/limits`));
 }
 
@@ -67,8 +86,18 @@ export function uploadPdf(
   onSent?: () => void
 ): UploadHandle {
   const xhr = new XMLHttpRequest();
-  const promise = new Promise<UploadResponse>((resolve, reject) => {
+  let cancelled = false;
+  const promise = new Promise<UploadResponse>(async (resolve, reject) => {
+    let token: string | null = null;
+    try {
+      token = await accessToken();
+    } catch {
+      /* handled below */
+    }
+    if (!token) return reject(new ApiError(SIGNED_OUT, 401));
+    if (cancelled) return reject(new DOMException("Upload cancelled", "AbortError"));
     xhr.open("POST", `${API_URL}/api/upload`);
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress?.(e.loaded / e.total);
     };
@@ -80,6 +109,7 @@ export function uploadPdf(
       } catch {
         /* non-JSON error page */
       }
+      if (xhr.status === 401) onUnauthorized();
       if (xhr.status >= 200 && xhr.status < 300) resolve(body as UploadResponse);
       else
         reject(
@@ -95,7 +125,13 @@ export function uploadPdf(
     form.append("file", file);
     xhr.send(form);
   });
-  return { promise, cancel: () => xhr.abort() };
+  return {
+    promise,
+    cancel: () => {
+      cancelled = true;
+      xhr.abort();
+    },
+  };
 }
 
 // ---------- Documents ----------
@@ -115,8 +151,29 @@ export async function deleteDocument(documentId: string): Promise<void> {
   );
 }
 
-export function pdfFileUrl(documentId: string): string {
-  return `${API_URL}/api/file/${encodeURIComponent(documentId)}`;
+/**
+ * A private, temporary (1 hour) link to the original PDF. The viewer is an
+ * <iframe>, which can't send the sign-in header, so the server signs a link.
+ */
+export async function getPdfUrl(documentId: string, signal?: AbortSignal): Promise<string> {
+  const data = await handle<{ url: string }>(
+    await request(`${API_URL}/api/file/${encodeURIComponent(documentId)}`, { signal })
+  );
+  return data.url;
+}
+
+/** Opens the original PDF in a new tab (the tab is opened first so pop-up blockers allow it). */
+export async function openPdf(documentId: string, page?: number): Promise<void> {
+  const win = window.open("", "_blank");
+  try {
+    const url = await getPdfUrl(documentId);
+    const target = page ? `${url}#page=${page}` : url;
+    if (win) win.location.href = target;
+    else window.location.href = target;
+  } catch (err) {
+    win?.close();
+    throw err;
+  }
 }
 
 // ---------- Chat ----------

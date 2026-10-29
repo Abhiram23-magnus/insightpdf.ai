@@ -24,7 +24,14 @@ export interface DocumentItem {
   filename: string;
   num_pages: number;
   num_chunks: number;
+  file_size_bytes?: number;
   created_at: string;
+}
+
+export interface Limits {
+  max_upload_mb: number;
+  max_documents: number;
+  storage_used_bytes: number;
 }
 
 export interface HistoryItem {

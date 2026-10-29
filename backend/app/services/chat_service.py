@@ -22,7 +22,8 @@ from __future__ import annotations
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.config import get_settings
-from app.services.vector_store import get_vector_store, with_rate_limit_retry
+from app.services import vector_store
+from app.services.vector_store import with_rate_limit_retry
 
 
 # The instruction we give Gemini. Keeping it strict reduces "hallucination"
@@ -80,15 +81,15 @@ def _message_text(response) -> str:
     return str(content)
 
 
-def answer_question(document_id: str, question: str) -> dict:
+def answer_question(token: str, document_id: str, question: str) -> dict:
     """
     Run the full RAG query pipeline and return an answer + sources.
     """
     settings = get_settings()
-    store = get_vector_store()
 
     # 1. RETRIEVE the most relevant chunks for this question.
-    chunks = store.search(
+    chunks = vector_store.search(
+        token,
         document_id=document_id,
         query=question,
         top_k=settings.top_k,
@@ -148,7 +149,7 @@ def _sources_from(chunks: list[dict]) -> list[dict]:
     ]
 
 
-def stream_answer(document_id: str, question: str):
+def stream_answer(token: str, document_id: str, question: str):
     """
     Same pipeline as answer_question, but yields events as the answer is written:
       ("sources", [...])  — once, as soon as retrieval finishes
@@ -156,9 +157,8 @@ def stream_answer(document_id: str, question: str):
     The caller joins the tokens to get the full answer.
     """
     settings = get_settings()
-    store = get_vector_store()
 
-    chunks = store.search(document_id=document_id, query=question, top_k=settings.top_k)
+    chunks = vector_store.search(token, document_id=document_id, query=question, top_k=settings.top_k)
     sources = _sources_from(chunks)
     yield ("sources", sources)
 

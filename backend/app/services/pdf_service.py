@@ -13,7 +13,7 @@ This file handles the steps that happen ONCE per uploaded PDF:
   2. CHUNK    -> cut that text into small overlapping pieces
   3. EMBED    -> turn each chunk into a list of numbers (a "vector")
                  that captures its meaning
-  4. STORE    -> save those vectors in ChromaDB so we can search them later
+  4. STORE    -> save those vectors in Postgres (pgvector) so we can search them later
 
 Why chunk? Because PDFs are huge and AI models have limited input size.
 Small chunks also make search more precise.
@@ -24,15 +24,15 @@ compare vectors. Similar meaning -> vectors that are close together.
 
 from __future__ import annotations
 
-import os
+import io
 from pypdf import PdfReader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.core.config import get_settings
-from app.services.vector_store import get_vector_store
+from app.services import supabase_client, vector_store
 
 
-def extract_pages(pdf_path: str) -> list[dict]:
+def extract_pages(pdf_bytes: bytes) -> list[dict]:
     """
     STEP 1 — EXTRACT.
     Open the PDF and pull text out page by page.
@@ -44,7 +44,7 @@ def extract_pages(pdf_path: str) -> list[dict]:
     EXACTLY which page an answer came from (the "Sources" feature).
     """
     try:
-        reader = PdfReader(pdf_path)
+        reader = PdfReader(io.BytesIO(pdf_bytes))
     except Exception:  # noqa: BLE001
         raise ValueError(
             "This file couldn't be read as a PDF. It may be damaged — try exporting it again."
@@ -114,32 +114,31 @@ def chunk_pages(pages: list[dict]) -> list[dict]:
     return chunks
 
 
-def process_pdf(pdf_path: str, document_id: str) -> dict:
+def process_pdf(pdf_bytes: bytes, token: str, user_id: str, document_id: str) -> dict:
     """
-    Run the full ingestion pipeline for one PDF and store it in ChromaDB.
+    Run the full ingestion pipeline for one PDF and store its passages.
 
-    `document_id` tags every chunk so that, when the user later asks a
+    `document_id` tags every passage so that, when the user later asks a
     question, we only search inside THIS document and not others.
 
     Returns a small summary used in the API response.
     """
     # 1 + 2: extract and chunk
-    pages = extract_pages(pdf_path)
+    pages = extract_pages(pdf_bytes)
     if not pages:
         raise ValueError(
-            "No extractable text found. The PDF may be scanned images. "
-            "OCR is needed for those (out of scope for this beginner build)."
+            "No text could be found in this PDF. It may be a scanned image; "
+            "scanned PDFs aren't supported yet."
         )
     chunks = chunk_pages(pages)
 
-    # 3 + 4: embed and store (handled inside the vector store wrapper)
-    store = get_vector_store()
+    # 3 + 4: embed and store
     try:
-        store.add_chunks(document_id=document_id, chunks=chunks)
+        vector_store.add_chunks(token, user_id, document_id, chunks)
     except Exception:
         # Don't leave half a document in the database if embedding fails.
         try:
-            store.delete_document(document_id)
+            supabase_client.delete(token, "chunks", {"document_id": f"eq.{document_id}"})
         except Exception:  # noqa: BLE001
             pass
         raise
@@ -148,12 +147,3 @@ def process_pdf(pdf_path: str, document_id: str) -> dict:
         "num_pages": len(pages),
         "num_chunks": len(chunks),
     }
-
-
-def delete_pdf_file(pdf_path: str) -> None:
-    """Best-effort cleanup of the raw uploaded file from disk."""
-    try:
-        if os.path.exists(pdf_path):
-            os.remove(pdf_path)
-    except OSError:
-        pass

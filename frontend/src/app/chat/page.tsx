@@ -13,7 +13,8 @@ import PdfViewer from "@/components/PdfViewer";
 import SourcesPanel from "@/components/SourcesPanel";
 import ThemeToggle from "@/components/ThemeToggle";
 import { buttonClass, Spinner } from "@/components/ui";
-import { getHistory, listDocuments, pdfFileUrl } from "@/lib/api";
+import { getHistory, listDocuments, openPdf } from "@/lib/api";
+import { RequireAuth } from "@/components/AuthProvider";
 import { plural } from "@/lib/format";
 import type { DocumentItem, HistoryItem, Source } from "@/types";
 
@@ -110,7 +111,7 @@ function Workspace() {
           </h1>
           <p className="mt-2 text-sm leading-relaxed text-muted">
             {status === "missing"
-              ? "It may have been deleted, or the free server cleared it when it restarted. Upload the PDF again to keep going."
+              ? "It may have been deleted, or it belongs to a different account. Check your library."
               : "The server may still be waking up. Try again in a few seconds."}
           </p>
           <div className="mt-6 flex justify-center gap-2">
@@ -157,10 +158,10 @@ function Workspace() {
             {plural(doc?.num_pages ?? 0, "page")} · {plural(doc?.num_chunks ?? 0, "passage")} indexed
           </p>
         </div>
-        <a href={pdfFileUrl(documentId)} target="_blank" rel="noreferrer" className={`hidden sm:inline-flex ${buttonClass("secondary", "sm")}`}>
+        <button type="button" onClick={() => openPdf(documentId).catch(() => {})} className={`hidden sm:inline-flex ${buttonClass("secondary", "sm")}`}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v12M6 10l6 6 6-6M4 20h16" /></svg>
-          Download
-        </a>
+          Original PDF
+        </button>
         <ThemeToggle />
       </header>
 
@@ -243,7 +244,9 @@ export default function ChatPage() {
         </Centered>
       }
     >
-      <Workspace />
+      <RequireAuth>
+        <Workspace />
+      </RequireAuth>
     </Suspense>
   );
 }
