@@ -13,6 +13,7 @@ GET    /api/limits                -> upload limits + this user's storage usage
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -25,6 +26,7 @@ from app.services import pdf_service, storage_service
 from app.services.supabase_client import SupabaseError
 
 router = APIRouter(prefix="/api", tags=["upload"])
+log = logging.getLogger("uvicorn.error")
 
 
 def _valid_uuid(value: str) -> bool:
@@ -92,9 +94,11 @@ async def upload_pdf(
         )
         await run_in_threadpool(storage_service.upload_pdf, token, user.id, document_id, contents)
     except SupabaseError as exc:
+        log.warning("Saving %s failed: %s", document_id, exc.message[:500])
         await run_in_threadpool(_cleanup, token, document_id)
         raise HTTPException(status_code=500, detail=f"Could not save the file: {exc.message}")
 
+    log.info("Processing %s (%d bytes)", document_id, len(contents))
     # 4. Extract -> chunk -> embed -> store. Slow, blocking work, so it runs
     # in a worker thread instead of blocking the server.
     try:
@@ -105,6 +109,7 @@ async def upload_pdf(
         await run_in_threadpool(_cleanup, token, document_id)
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
+        log.warning("Processing failed for %s: %s", document_id, str(exc)[:500])
         await run_in_threadpool(_cleanup, token, document_id)
         if "RESOURCE_EXHAUSTED" in str(exc) or "429" in str(exc):
             raise HTTPException(

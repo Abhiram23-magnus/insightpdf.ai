@@ -113,6 +113,7 @@ def answer_question(token: str, document_id: str, question: str) -> dict:
         model=settings.gemini_chat_model,
         google_api_key=settings.google_api_key,
         temperature=0.2,  # low = more factual, less "creative"
+        timeout=90,
     )
     response = with_rate_limit_retry(llm.invoke, prompt)
     answer_text = _message_text(response)
@@ -171,6 +172,7 @@ def stream_answer(token: str, document_id: str, question: str):
         model=settings.gemini_chat_model,
         google_api_key=settings.google_api_key,
         temperature=0.2,
+        timeout=90,
     )
 
     # Retry a rate-limit error only if it happens before any text was sent,

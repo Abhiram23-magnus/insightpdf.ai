@@ -13,7 +13,7 @@ security and the bucket policies only ever let a user touch their own data.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.services import supabase_client as sb
 
@@ -70,6 +70,31 @@ def mark_ready(token: str, document_id: str, num_pages: int, num_chunks: int) ->
     )
 
 
+STALE_MINUTES = 20
+
+
+def purge_stale(token: str) -> None:
+    """
+    Remove this user's uploads that never finished processing (the server
+    restarted or the request died midway), so they don't count against limits.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=STALE_MINUTES)).isoformat()
+    try:
+        rows = sb.select(
+            token,
+            "documents",
+            {"select": "id,storage_path", "status": "neq.ready", "created_at": f"lt.{cutoff}"},
+        )
+        for row in rows:
+            try:
+                sb.remove_object(token, row["storage_path"])
+            except sb.SupabaseError:
+                pass
+            sb.delete(token, "documents", {"id": f"eq.{row['id']}"})
+    except sb.SupabaseError:
+        pass
+
+
 def count_documents(token: str) -> int:
     return len(sb.select(token, "documents", {"select": "id"}))
 
@@ -84,6 +109,7 @@ def find_by_checksum(token: str, checksum: str) -> dict | None:
 
 
 def list_documents(token: str) -> list[dict]:
+    purge_stale(token)
     rows = sb.select(
         token,
         "documents",

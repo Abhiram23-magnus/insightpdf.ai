@@ -17,14 +17,18 @@ WHERE DO THEY LIVE?
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 
+from google import genai
+from google.genai.types import HttpOptions
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 from app.core.config import get_settings
 from app.services import supabase_client
 
+log = logging.getLogger("uvicorn.error")
 
 # --- Gemini free-tier rate limiting -----------------------------------------
 # The free tier allows ~100 embedding requests per MINUTE. A big PDF can have
@@ -36,6 +40,7 @@ EMBED_BATCH_SIZE = 80      # chunks per batch (under the 100/min limit)
 RATE_WINDOW_SECONDS = 61   # one batch per window
 MAX_RETRIES = 5
 INSERT_BATCH_SIZE = 100    # rows per insert request to Postgres
+GEMINI_TIMEOUT_MS = 60_000 # never wait on a single Gemini call longer than this
 
 
 def _is_rate_limit(exc: Exception) -> bool:
@@ -61,7 +66,9 @@ def with_rate_limit_retry(fn, *args, **kwargs):
         except Exception as exc:  # noqa: BLE001
             if not _is_rate_limit(exc) or attempt == MAX_RETRIES:
                 raise
-            time.sleep(_retry_delay(exc, attempt))
+            delay = _retry_delay(exc, attempt)
+            log.warning("Gemini rate limit (attempt %d); waiting %.0fs", attempt + 1, delay)
+            time.sleep(delay)
 
 
 _embeddings: GoogleGenerativeAIEmbeddings | None = None
@@ -71,10 +78,17 @@ def _embedder() -> GoogleGenerativeAIEmbeddings:
     global _embeddings
     if _embeddings is None:
         settings = get_settings()
-        _embeddings = GoogleGenerativeAIEmbeddings(
+        emb = GoogleGenerativeAIEmbeddings(
             model=settings.gemini_embed_model,
             google_api_key=settings.google_api_key,
         )
+        # The default client has no request timeout, so a stalled connection
+        # could hang an upload forever. Give it one.
+        emb.client = genai.Client(
+            api_key=settings.google_api_key,
+            http_options=HttpOptions(timeout=GEMINI_TIMEOUT_MS),
+        )
+        _embeddings = emb
     return _embeddings
 
 
