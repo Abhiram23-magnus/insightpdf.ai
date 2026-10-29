@@ -66,6 +66,14 @@ async def upload_pdf(file: UploadFile = File(...)) -> UploadResponse:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
         pdf_service.delete_pdf_file(saved_path)
+        if "RESOURCE_EXHAUSTED" in str(exc) or "429" in str(exc):
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "The free Gemini quota is used up for now. Wait a minute and "
+                    "try again (if it keeps happening, the daily limit may be reached)."
+                ),
+            )
         raise HTTPException(status_code=500, detail=f"Processing failed: {exc}")
 
     # 4. Record metadata so the document shows up in lists.

@@ -118,7 +118,15 @@ def process_pdf(pdf_path: str, document_id: str) -> dict:
 
     # 3 + 4: embed and store (handled inside the vector store wrapper)
     store = get_vector_store()
-    store.add_chunks(document_id=document_id, chunks=chunks)
+    try:
+        store.add_chunks(document_id=document_id, chunks=chunks)
+    except Exception:
+        # Don't leave half a document in the database if embedding fails.
+        try:
+            store.delete_document(document_id)
+        except Exception:  # noqa: BLE001
+            pass
+        raise
 
     return {
         "num_pages": len(pages),

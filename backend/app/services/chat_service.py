@@ -22,7 +22,7 @@ from __future__ import annotations
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.config import get_settings
-from app.services.vector_store import get_vector_store
+from app.services.vector_store import get_vector_store, with_rate_limit_retry
 
 
 # The instruction we give Gemini. Keeping it strict reduces "hallucination"
@@ -110,7 +110,7 @@ def answer_question(document_id: str, question: str) -> dict:
         google_api_key=settings.google_api_key,
         temperature=0.2,  # low = more factual, less "creative"
     )
-    response = llm.invoke(prompt)
+    response = with_rate_limit_retry(llm.invoke, prompt)
     answer_text = _message_text(response)
 
     # 4. CITE — build the sources list (short snippet preview per chunk).

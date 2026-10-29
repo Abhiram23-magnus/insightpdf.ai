@@ -19,10 +19,50 @@ We persist Chroma to disk (CHROMA_DIR) so your data survives server restarts.
 
 from __future__ import annotations
 
+import re
+import time
+
 from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 from app.core.config import get_settings
+
+
+# --- Gemini free-tier rate limiting -----------------------------------------
+# The free tier allows ~100 embedding requests per MINUTE. A big PDF can have
+# hundreds of chunks, so sending them all at once fails with
+# "429 RESOURCE_EXHAUSTED". We therefore:
+#   1. send chunks in batches that stay under the per-minute limit, and
+#   2. if Google still says "slow down", wait the time it asks for and retry.
+EMBED_BATCH_SIZE = 80      # chunks per batch (under the 100/min limit)
+RATE_WINDOW_SECONDS = 61   # one batch per window
+MAX_RETRIES = 5
+
+
+def _is_rate_limit(exc: Exception) -> bool:
+    text = str(exc)
+    return "RESOURCE_EXHAUSTED" in text or "429" in text
+
+
+def _retry_delay(exc: Exception, attempt: int) -> float:
+    """Use the delay Google suggests ('retry in 29.8s'), else back off."""
+    match = re.search(r"retry in ([\d.]+)s", str(exc)) or re.search(
+        r"retryDelay'?:\s*'?(\d+)s", str(exc)
+    )
+    if match:
+        return float(match.group(1)) + 2
+    return min(15 * (attempt + 1), 65)
+
+
+def with_rate_limit_retry(fn, *args, **kwargs):
+    """Call fn, waiting and retrying when Gemini returns a 429."""
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001
+            if not _is_rate_limit(exc) or attempt == MAX_RETRIES:
+                raise
+            time.sleep(_retry_delay(exc, attempt))
 
 
 class VectorStore:
@@ -67,7 +107,21 @@ class VectorStore:
         # Stable IDs prevent duplicates if the same doc is processed twice.
         ids = [f"{document_id}-{c['chunk_index']}" for c in chunks]
 
-        self._db.add_texts(texts=texts, metadatas=metadatas, ids=ids)
+        # Embed + store in rate-limited batches (see note at top of file).
+        for start in range(0, len(texts), EMBED_BATCH_SIZE):
+            batch_started = time.monotonic()
+            end = start + EMBED_BATCH_SIZE
+            with_rate_limit_retry(
+                self._db.add_texts,
+                texts=texts[start:end],
+                metadatas=metadatas[start:end],
+                ids=ids[start:end],
+            )
+            # If more batches remain, wait out the rest of the minute.
+            if end < len(texts):
+                elapsed = time.monotonic() - batch_started
+                if elapsed < RATE_WINDOW_SECONDS:
+                    time.sleep(RATE_WINDOW_SECONDS - elapsed)
 
     def search(self, document_id: str, query: str, top_k: int) -> list[dict]:
         """
@@ -77,7 +131,8 @@ class VectorStore:
 
         Returns a list of dicts with the text + its metadata.
         """
-        results = self._db.similarity_search(
+        results = with_rate_limit_retry(
+            self._db.similarity_search,
             query=query,
             k=top_k,
             filter={"document_id": document_id},

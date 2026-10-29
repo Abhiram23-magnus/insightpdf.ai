@@ -120,7 +120,9 @@ export default function UploadCard({ onUploaded }: Props) {
             {slow && (
               <p className="mt-2 text-xs text-[var(--text-muted)] animate-fade-in">
                 Still working… the free server can take up to a minute to
-                wake up, and large PDFs take longer.
+                wake up. Large PDFs are processed in batches to stay within
+                the free AI limits, so they can take a few minutes — keep
+                this page open.
               </p>
             )}
           </div>
