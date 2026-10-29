@@ -13,6 +13,7 @@ import os
 import uuid
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
@@ -55,8 +56,10 @@ async def upload_pdf(file: UploadFile = File(...)) -> UploadResponse:
         raise HTTPException(status_code=500, detail=f"Could not save file: {exc}")
 
     # 3. Run extract -> chunk -> embed -> store.
+    # This is slow, blocking work (many Gemini embedding calls), so we run it
+    # in a worker thread instead of blocking the async event loop.
     try:
-        result = pdf_service.process_pdf(saved_path, document_id)
+        result = await run_in_threadpool(pdf_service.process_pdf, saved_path, document_id)
     except ValueError as exc:
         # Friendly error (e.g. scanned PDF with no text).
         pdf_service.delete_pdf_file(saved_path)
@@ -83,7 +86,7 @@ async def upload_pdf(file: UploadFile = File(...)) -> UploadResponse:
 
 
 @router.get("/documents", response_model=DocumentsResponse)
-async def list_documents() -> DocumentsResponse:
+def list_documents() -> DocumentsResponse:
     docs = storage_service.list_documents()
     items = [DocumentItem(**d) for d in docs]
     return DocumentsResponse(items=items)
@@ -95,6 +98,12 @@ async def get_file(document_id: str):
     Serve the raw PDF so the frontend's <iframe> viewer can display it.
     We look it up by document_id (the filename we saved it under).
     """
+    # Only accept real UUIDs, so nobody can request arbitrary files.
+    try:
+        uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="File not found.")
+
     settings = get_settings()
     path = os.path.join(settings.upload_dir, f"{document_id}.pdf")
     if not os.path.exists(path):

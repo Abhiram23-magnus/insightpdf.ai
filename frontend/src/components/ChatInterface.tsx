@@ -7,20 +7,60 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Send, Loader2, Sparkles, User } from "lucide-react";
-import { askQuestion } from "@/lib/api";
-import type { ChatMessage, Source } from "@/types";
+import { ApiError, askQuestion } from "@/lib/api";
+import type { ChatMessage, HistoryItem, Source } from "@/types";
 
 interface Props {
   documentId: string;
+  // Past Q&A for this document, so a page reload doesn't wipe the chat.
+  history: HistoryItem[];
   onSources: (sources: Source[]) => void;
+  // Called when the backend says the document no longer exists.
+  onMissingDocument: () => void;
 }
 
-export default function ChatInterface({ documentId, onSources }: Props) {
+// crypto.randomUUID() only exists on HTTPS/localhost; fall back elsewhere.
+function newId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function historyToMessages(history: HistoryItem[]): ChatMessage[] {
+  return history.flatMap((h) => [
+    { id: `${h.id}-q`, role: "user" as const, content: h.question },
+    {
+      id: `${h.id}-a`,
+      role: "assistant" as const,
+      content: h.answer,
+      sources: h.sources,
+    },
+  ]);
+}
+
+export default function ChatInterface({
+  documentId,
+  history,
+  onSources,
+  onMissingDocument,
+}: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const seeded = useRef(false);
+
+  // Show earlier questions/answers once history arrives (only once, so we
+  // never overwrite messages from the current session).
+  useEffect(() => {
+    if (seeded.current || history.length === 0) return;
+    seeded.current = true;
+    setMessages((prev) => (prev.length === 0 ? historyToMessages(history) : prev));
+    const last = history[history.length - 1];
+    if (last?.sources?.length) onSources(last.sources);
+  }, [history, onSources]);
 
   // Auto-scroll to the newest message.
   useEffect(() => {
@@ -35,8 +75,9 @@ export default function ChatInterface({ documentId, onSources }: Props) {
     setInput("");
 
     // Optimistically add the user's message.
+    seeded.current = true;
     const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: newId(),
       role: "user",
       content: question,
     };
@@ -46,7 +87,7 @@ export default function ChatInterface({ documentId, onSources }: Props) {
     try {
       const res = await askQuestion(documentId, question);
       const aiMsg: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: newId(),
         role: "assistant",
         content: res.answer,
         sources: res.sources,
@@ -54,7 +95,13 @@ export default function ChatInterface({ documentId, onSources }: Props) {
       setMessages((prev) => [...prev, aiMsg]);
       onSources(res.sources);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        onMissingDocument();
+        return;
+      }
       setError(err instanceof Error ? err.message : "Something went wrong.");
+      // Give the question back so the user doesn't have to retype it.
+      setInput(question);
     } finally {
       setLoading(false);
     }
@@ -62,7 +109,8 @@ export default function ChatInterface({ documentId, onSources }: Props) {
 
   function onKeyDown(e: React.KeyboardEvent) {
     // Enter to send, Shift+Enter for a newline.
-    if (e.key === "Enter" && !e.shiftKey) {
+    // (isComposing check: don't send mid-word when typing with an IME keyboard)
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       send();
     }

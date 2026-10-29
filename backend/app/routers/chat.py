@@ -24,10 +24,14 @@ router = APIRouter(prefix="/api", tags=["chat"])
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest) -> ChatResponse:
+def chat(request: ChatRequest) -> ChatResponse:
     """
     Answer a question about a previously uploaded document, then store
     the exchange in chat history.
+
+    NOTE: this is a plain `def` (not `async def`) on purpose. The Gemini call
+    below is blocking; FastAPI runs plain `def` endpoints in a thread pool,
+    so one slow answer no longer freezes the whole server (and its health check).
     """
     # Make sure the document actually exists before we try to search it.
     doc = storage_service.get_document(request.document_id)
@@ -57,7 +61,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
 
 @router.get("/history", response_model=HistoryResponse)
-async def get_history(
+def get_history(
     document_id: str | None = Query(default=None, description="Filter by document"),
 ) -> HistoryResponse:
     history = storage_service.list_history(document_id=document_id)

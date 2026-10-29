@@ -5,35 +5,34 @@
 // It adds/removes the "dark" class on <html>, which Tailwind's
 // darkMode: "class" setting watches. We also remember the choice in
 // localStorage so it persists across visits.
+//
+// The initial class is already set by a small script in layout.tsx (before
+// the page paints), so here we just read what's on <html> to stay in sync.
 
 import { useEffect, useState } from "react";
 
 type Theme = "light" | "dark";
 
+function save(theme: Theme) {
+  try {
+    localStorage.setItem("theme", theme);
+  } catch {
+    // Private mode / blocked storage: the toggle still works for this visit.
+  }
+}
+
 export function useTheme() {
   const [theme, setTheme] = useState<Theme>("dark");
 
-  // On first render, read the saved theme (or fall back to system pref).
   useEffect(() => {
-    const saved = localStorage.getItem("theme") as Theme | null;
-    const prefersDark = window.matchMedia(
-      "(prefers-color-scheme: dark)"
-    ).matches;
-    const initial: Theme = saved ?? (prefersDark ? "dark" : "light");
-    applyTheme(initial);
-    setTheme(initial);
+    const isDark = document.documentElement.classList.contains("dark");
+    setTheme(isDark ? "dark" : "light");
   }, []);
-
-  function applyTheme(next: Theme) {
-    const root = document.documentElement;
-    if (next === "dark") root.classList.add("dark");
-    else root.classList.remove("dark");
-    localStorage.setItem("theme", next);
-  }
 
   function toggle() {
     const next: Theme = theme === "dark" ? "light" : "dark";
-    applyTheme(next);
+    document.documentElement.classList.toggle("dark", next === "dark");
+    save(next);
     setTheme(next);
   }
 

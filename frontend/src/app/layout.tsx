@@ -32,7 +32,22 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable}`}>
+    // suppressHydrationWarning: the script below may add the "dark" class
+    // before React loads, which is expected and not a real mismatch.
+    <html
+      lang="en"
+      className={`${display.variable} ${body.variable}`}
+      suppressHydrationWarning
+    >
+      <head>
+        {/* Apply the saved theme BEFORE the page paints, so there's no
+            white flash when someone who chose dark mode reloads. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem("theme");if(!t){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}if(t==="dark")document.documentElement.classList.add("dark")}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body className="font-sans antialiased grain">{children}</body>
     </html>
   );

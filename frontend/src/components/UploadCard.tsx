@@ -5,9 +5,9 @@
 // On success it calls onUploaded() with the new document_id so the parent
 // can navigate to the chat page.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileUp, Loader2, FileText, CheckCircle2 } from "lucide-react";
-import { uploadPdf } from "@/lib/api";
+import { uploadPdf, wakeBackend } from "@/lib/api";
 import type { UploadResponse } from "@/types";
 
 interface Props {
@@ -18,10 +18,27 @@ export default function UploadCard({ onUploaded }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [slow, setSlow] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Start waking the (free, sleeping) backend as soon as the page opens.
+  useEffect(() => {
+    wakeBackend();
+  }, []);
+
+  // If processing takes a while, tell the user why instead of looking stuck.
+  useEffect(() => {
+    if (!uploading) {
+      setSlow(false);
+      return;
+    }
+    const t = setTimeout(() => setSlow(true), 8000);
+    return () => clearTimeout(t);
+  }, [uploading]);
+
   async function handleFile(file: File) {
+    if (uploading) return;
     setError(null);
     if (!file.name.toLowerCase().endsWith(".pdf")) {
       setError("Please choose a PDF file.");
@@ -37,6 +54,8 @@ export default function UploadCard({ onUploaded }: Props) {
       setFileName(null);
     } finally {
       setUploading(false);
+      // Clear the input so choosing the same file again still triggers onChange.
+      if (inputRef.current) inputRef.current.value = "";
     }
   }
 
@@ -57,6 +76,14 @@ export default function UploadCard({ onUploaded }: Props) {
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if ((e.key === "Enter" || e.key === " ") && !uploading) {
+            e.preventDefault();
+            inputRef.current?.click();
+          }
+        }}
         className={`group relative flex cursor-pointer flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed p-12 text-center transition-all duration-300 ${
           dragging
             ? "border-[var(--accent)] bg-[var(--surface-2)] scale-[1.01]"
@@ -90,6 +117,12 @@ export default function UploadCard({ onUploaded }: Props) {
             <p className="mt-1 text-sm text-[var(--text-muted)]">
               Extracting text, chunking, and building embeddings.
             </p>
+            {slow && (
+              <p className="mt-2 text-xs text-[var(--text-muted)] animate-fade-in">
+                Still working… the free server can take up to a minute to
+                wake up, and large PDFs take longer.
+              </p>
+            )}
           </div>
         ) : fileName ? (
           <div className="flex items-center gap-2 text-[var(--text)]">

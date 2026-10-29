@@ -56,6 +56,27 @@ def _build_context(chunks: list[dict]) -> str:
     return "\n\n---\n\n".join(parts)
 
 
+def _message_text(response) -> str:
+    """
+    Newer LangChain/Gemini versions can return `content` as a LIST of parts
+    (text blocks, thinking blocks, ...) instead of a plain string. Sending
+    that list to the frontend breaks the response schema, so we always
+    flatten it to plain text here.
+    """
+    content = getattr(response, "content", response)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict) and part.get("type") == "text":
+                parts.append(part.get("text", ""))
+        return "".join(parts).strip()
+    return str(content)
+
+
 def answer_question(document_id: str, question: str) -> dict:
     """
     Run the full RAG query pipeline and return an answer + sources.
@@ -90,7 +111,7 @@ def answer_question(document_id: str, question: str) -> dict:
         temperature=0.2,  # low = more factual, less "creative"
     )
     response = llm.invoke(prompt)
-    answer_text = response.content if hasattr(response, "content") else str(response)
+    answer_text = _message_text(response)
 
     # 4. CITE — build the sources list (short snippet preview per chunk).
     sources = [
