@@ -34,6 +34,8 @@ class Settings(BaseSettings):
 
     # --- CORS ---
     frontend_origins: str = "http://localhost:3000"
+    # Also allow this project's Vercel preview deployments (one URL per branch/commit).
+    frontend_origin_regex: str = r"https://insightpdf-[a-z0-9-]+-abhiram23-magnus-projects\.vercel\.app"
 
     # Tell pydantic to load from a .env file
     model_config = SettingsConfigDict(
