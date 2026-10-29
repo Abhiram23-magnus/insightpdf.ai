@@ -1,6 +1,7 @@
 // app/page.tsx — Landing page
 import Link from "next/link";
-import { Logo, buttonClass } from "@/components/ui";
+import { Logo } from "@/components/ui";
+import { buttonClass } from "@/lib/styles";
 import ThemeToggle from "@/components/ThemeToggle";
 import ProductPreview from "@/components/landing/ProductPreview";
 import Reveal from "@/components/landing/Reveal";

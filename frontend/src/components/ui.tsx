@@ -7,31 +7,15 @@ import Link from "next/link";
 import { motion, type HTMLMotionProps } from "motion/react";
 import { forwardRef } from "react";
 
+import { buttonClass, type ButtonSize, type ButtonVariant } from "@/lib/styles";
+
+export { buttonClass };
+
 const press = { whileTap: { scale: 0.97 }, transition: { duration: 0.12 } };
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
-
-const variants: Record<Variant, string> = {
-  primary:
-    "bg-brand-solid text-white shadow-[0_8px_24px_-10px_var(--glow)] hover:brightness-110",
-  secondary: "border border-line bg-surface text-ink hover:border-line-strong hover:bg-surface-2",
-  ghost: "text-muted hover:bg-surface-2 hover:text-ink",
-  danger: "bg-[#DC2626] text-white hover:brightness-110",
-};
-
-const sizes = {
-  sm: "h-8 gap-1.5 px-3 text-[13px]",
-  md: "h-10 gap-2 px-4 text-sm",
-  lg: "h-12 gap-2 px-5 text-[15px]",
-};
-
-export function buttonClass(variant: Variant = "secondary", size: keyof typeof sizes = "md") {
-  return `inline-flex shrink-0 items-center justify-center rounded-lg font-medium transition-[background-color,border-color,filter,color] duration-150 disabled:pointer-events-none disabled:opacity-50 ${variants[variant]} ${sizes[size]}`;
-}
-
 interface ButtonProps extends HTMLMotionProps<"button"> {
-  variant?: Variant;
-  size?: keyof typeof sizes;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
