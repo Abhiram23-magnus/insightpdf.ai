@@ -1,23 +1,9 @@
-// lib/api.ts
-// One place for every network call to the backend. Components never call
-// fetch() directly — they call these functions. If the API ever changes,
-// you only edit this file.
+// lib/api.ts — every network call to the backend lives here.
 
-import type {
-  UploadResponse,
-  ChatResponse,
-  DocumentItem,
-  HistoryItem,
-} from "@/types";
+import type { ChatResponse, DocumentItem, HistoryItem, Source, UploadResponse } from "@/types";
 
-// Read the backend URL from the environment (set in .env.local / Vercel).
-// Strip any trailing slash so we never build URLs like "...com//api/chat".
-const API_URL = (
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-).replace(/\/+$/, "");
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
 
-// Error thrown for API failures. `status` lets callers react to specific
-// cases (e.g. 404 = document no longer exists on the server).
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -26,86 +12,190 @@ export class ApiError extends Error {
   }
 }
 
-// fetch() wrapper: turns network failures (server asleep/offline, CORS)
-// into a readable message instead of the browser's "Failed to fetch".
+const OFFLINE =
+  "Can't reach the server. It may be waking up — wait a few seconds and try again.";
+
 async function request(input: string, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(input, init);
-  } catch {
-    throw new ApiError(
-      "Can't reach the server. It may be waking up — wait a few seconds and try again.",
-      0
-    );
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new ApiError(OFFLINE, 0);
   }
 }
 
-// Turns non-2xx responses into thrown errors with the backend's friendly
-// "detail" message when available.
-async function handle<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    let detail = `Request failed (${res.status})`;
-    try {
-      const body = await res.json();
-      if (typeof body?.detail === "string") detail = body.detail;
-      else if (Array.isArray(body?.detail) && body.detail[0]?.msg)
-        detail = body.detail[0].msg; // FastAPI validation errors
-    } catch {
-      // ignore JSON parse errors
-    }
-    throw new ApiError(detail, res.status);
+async function readError(res: Response): Promise<string> {
+  try {
+    const body = await res.json();
+    if (typeof body?.detail === "string") return body.detail;
+    if (Array.isArray(body?.detail) && body.detail[0]?.msg) return body.detail[0].msg;
+  } catch {
+    /* not JSON */
   }
+  return `Request failed (${res.status})`;
+}
+
+async function handle<T>(res: Response): Promise<T> {
+  if (!res.ok) throw new ApiError(await readError(res), res.status);
   return res.json() as Promise<T>;
 }
 
-// Ping the backend so a sleeping free-tier server starts waking up while
-// the user is still choosing a file. Errors are ignored on purpose.
+/** Ping the backend so a sleeping free-tier server starts waking up early. */
 export function wakeBackend(): void {
   fetch(`${API_URL}/`).catch(() => {});
 }
 
-// Upload a single PDF. Uses FormData because we're sending a file.
-export async function uploadPdf(file: File): Promise<UploadResponse> {
-  const formData = new FormData();
-  formData.append("file", file);
-
-  const res = await request(`${API_URL}/api/upload`, {
-    method: "POST",
-    body: formData,
-  });
-  return handle<UploadResponse>(res);
+export async function getLimits(): Promise<{ max_upload_mb: number }> {
+  return handle(await request(`${API_URL}/api/limits`));
 }
 
-// Ask a question about a document.
-export async function askQuestion(
-  documentId: string,
-  question: string
-): Promise<ChatResponse> {
-  const res = await request(`${API_URL}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ document_id: documentId, question }),
-  });
-  return handle<ChatResponse>(res);
+// ---------- Upload with real progress + cancel ----------
+
+export interface UploadHandle {
+  promise: Promise<UploadResponse>;
+  cancel: () => void;
 }
 
-// List all processed documents.
-export async function listDocuments(): Promise<DocumentItem[]> {
-  const res = await request(`${API_URL}/api/documents`);
-  const data = await handle<{ items: DocumentItem[] }>(res);
+/**
+ * Uploads one PDF. `onProgress(0..1)` reports bytes sent; `onSent` fires when
+ * the file is fully uploaded and the server starts reading/indexing it.
+ * fetch() can't report upload progress, so this uses XMLHttpRequest.
+ */
+export function uploadPdf(
+  file: File,
+  onProgress?: (fraction: number) => void,
+  onSent?: () => void
+): UploadHandle {
+  const xhr = new XMLHttpRequest();
+  const promise = new Promise<UploadResponse>((resolve, reject) => {
+    xhr.open("POST", `${API_URL}/api/upload`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(e.loaded / e.total);
+    };
+    xhr.upload.onload = () => onSent?.();
+    xhr.onload = () => {
+      let body: { detail?: unknown } & Partial<UploadResponse> = {};
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {
+        /* non-JSON error page */
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body as UploadResponse);
+      else
+        reject(
+          new ApiError(
+            typeof body.detail === "string" ? body.detail : `Upload failed (${xhr.status})`,
+            xhr.status
+          )
+        );
+    };
+    xhr.onerror = () => reject(new ApiError(OFFLINE, 0));
+    xhr.onabort = () => reject(new DOMException("Upload cancelled", "AbortError"));
+    const form = new FormData();
+    form.append("file", file);
+    xhr.send(form);
+  });
+  return { promise, cancel: () => xhr.abort() };
+}
+
+// ---------- Documents ----------
+
+export async function listDocuments(signal?: AbortSignal): Promise<DocumentItem[]> {
+  const data = await handle<{ items: DocumentItem[] }>(
+    await request(`${API_URL}/api/documents`, { signal })
+  );
   return data.items;
 }
 
-// Fetch chat history, optionally filtered to one document.
-export async function getHistory(documentId?: string): Promise<HistoryItem[]> {
-  const query = documentId
-    ? `?document_id=${encodeURIComponent(documentId)}`
-    : "";
-  const res = await request(`${API_URL}/api/history${query}`);
-  const data = await handle<{ items: HistoryItem[] }>(res);
-  return data.items;
+export async function deleteDocument(documentId: string): Promise<void> {
+  await handle(
+    await request(`${API_URL}/api/documents/${encodeURIComponent(documentId)}`, {
+      method: "DELETE",
+    })
+  );
 }
 
-// The PDF file is served by the backend for the viewer iframe.
 export function pdfFileUrl(documentId: string): string {
   return `${API_URL}/api/file/${encodeURIComponent(documentId)}`;
+}
+
+// ---------- Chat ----------
+
+export async function getHistory(documentId: string, signal?: AbortSignal): Promise<HistoryItem[]> {
+  const data = await handle<{ items: HistoryItem[] }>(
+    await request(`${API_URL}/api/history?document_id=${encodeURIComponent(documentId)}`, {
+      signal,
+    })
+  );
+  return data.items;
+}
+
+/** Non-streaming fallback. */
+export async function askQuestion(documentId: string, question: string): Promise<ChatResponse> {
+  return handle(
+    await request(`${API_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ document_id: documentId, question }),
+    })
+  );
+}
+
+export interface StreamHandlers {
+  onSources: (sources: Source[]) => void;
+  onToken: (text: string) => void;
+}
+
+/**
+ * Streams an answer over Server-Sent Events. Resolves with the full answer
+ * when the server sends `done`; rejects with ApiError on failure, or with an
+ * AbortError if `signal` is aborted (the Stop button).
+ */
+export async function streamQuestion(
+  documentId: string,
+  question: string,
+  handlers: StreamHandlers,
+  signal?: AbortSignal
+): Promise<string> {
+  const res = await request(`${API_URL}/api/chat/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+    body: JSON.stringify({ document_id: documentId, question }),
+    signal,
+  });
+  if (!res.ok || !res.body) throw new ApiError(await readError(res), res.status);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let answer = "";
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE messages are separated by a blank line.
+    let split: number;
+    while ((split = buffer.indexOf("\n\n")) !== -1) {
+      const raw = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+      let event = "message";
+      let data = "";
+      for (const line of raw.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (!data) continue;
+      const payload = JSON.parse(data);
+      if (event === "sources") handlers.onSources(payload as Source[]);
+      else if (event === "token") {
+        answer += payload as string;
+        handlers.onToken(payload as string);
+      } else if (event === "error") throw new ApiError(payload.message, 500);
+      else if (event === "done") return (payload.answer as string) || answer;
+    }
+  }
+  if (!answer) throw new ApiError("The answer was cut off. Please try again.", 0);
+  return answer;
 }

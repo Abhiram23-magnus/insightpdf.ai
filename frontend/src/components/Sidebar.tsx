@@ -1,96 +1,64 @@
-// components/Sidebar.tsx
 "use client";
 
-// A simple, collapsible-on-mobile sidebar showing the brand, the active
-// document, and chat history for that document.
-
-import { useRouter } from "next/navigation";
-import { ScrollText, Plus, History, FileText } from "lucide-react";
-import type { HistoryItem, UploadResponse } from "@/types";
+// App sidebar (desktop) — on small screens the library shows a top bar instead.
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { Logo } from "@/components/ui";
 import ThemeToggle from "@/components/ThemeToggle";
 
-interface Props {
-  doc: UploadResponse | null;
-  history: HistoryItem[];
-}
+const nav = [
+  {
+    href: "/library",
+    label: "Library",
+    icon: <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />,
+  },
+  {
+    href: "/",
+    label: "Home",
+    icon: <path d="M3 11 12 4l9 7M5 10v10h14V10" />,
+  },
+];
 
-export default function Sidebar({ doc, history }: Props) {
-  const router = useRouter();
-
+export default function Sidebar({ docCount }: { docCount: number | null }) {
+  const path = usePathname();
   return (
-    <aside className="flex h-full w-72 flex-col border-r border-[var(--border)] bg-[var(--surface)]">
-      {/* Brand */}
-      <div className="flex items-center justify-between px-5 py-5">
-        <button
-          onClick={() => router.push("/")}
-          className="flex items-center gap-2"
-        >
-          <div className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--accent)] text-black">
-            <ScrollText className="h-4 w-4" />
-          </div>
-          <span className="font-display text-lg font-semibold">
-            InsightPDF<span className="text-[var(--accent)]"> AI</span>
-          </span>
-        </button>
-        <ThemeToggle />
+    <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col gap-1 border-r border-line bg-surface px-3 py-5 lg:flex">
+      <div className="px-2 pb-5">
+        <Logo />
       </div>
+      <nav aria-label="Main" className="flex flex-col gap-1">
+        {nav.map((n) => {
+          const active = path === n.href;
+          return (
+            <Link
+              key={n.href}
+              href={n.href}
+              aria-current={active ? "page" : undefined}
+              className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors ${
+                active ? "bg-brand-soft text-brand-text" : "text-muted hover:bg-surface-2 hover:text-ink"
+              }`}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{n.icon}</svg>
+              {n.label}
+            </Link>
+          );
+        })}
+      </nav>
 
-      {/* New document */}
-      <div className="px-4">
-        <button
-          onClick={() => router.push("/")}
-          className="flex w-full items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2.5 text-sm font-medium transition-all duration-200 hover:border-[var(--accent)]"
-        >
-          <Plus className="h-4 w-4" />
-          New document
-        </button>
-      </div>
-
-      {/* Active document */}
-      {doc && (
-        <div className="mt-6 px-4">
-          <p className="mb-2 px-1 text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">
-            Current document
-          </p>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
-            <div className="flex items-start gap-2">
-              <FileText className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" />
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{doc.filename}</p>
-                <p className="text-xs text-[var(--text-muted)]">
-                  {doc.num_pages} pages · {doc.num_chunks} chunks
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* History */}
-      <div className="mt-6 flex min-h-0 flex-1 flex-col px-4 pb-4">
-        <p className="mb-2 flex items-center gap-1.5 px-1 text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">
-          <History className="h-3.5 w-3.5" />
-          History
-        </p>
-        <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto">
-          {history.length === 0 ? (
-            <p className="px-1 text-xs text-[var(--text-muted)]">
-              Your past questions will appear here.
+      <div className="mt-auto flex flex-col gap-3">
+        {docCount !== null && (
+          <div className="rounded-xl border border-line p-3.5 text-[13px]">
+            <p className="font-medium">
+              {docCount} document{docCount === 1 ? "" : "s"}
             </p>
-          ) : (
-            history
-              .slice()
-              .reverse()
-              .map((h) => (
-                <div
-                  key={h.id}
-                  className="rounded-lg px-3 py-2 text-sm text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
-                  title={h.question}
-                >
-                  <p className="truncate">{h.question}</p>
-                </div>
-              ))
-          )}
+            <p className="mt-1 text-xs leading-relaxed text-faint">
+              Stored on the free server — it may clear files when it restarts.
+            </p>
+          </div>
+        )}
+        <div className="flex items-center justify-between px-1">
+          <span className="text-xs text-faint">Theme</span>
+          <ThemeToggle />
         </div>
       </div>
     </aside>

@@ -1,6 +1,4 @@
-// types/index.ts
-// These TypeScript interfaces mirror the Pydantic schemas on the backend.
-// Keeping them in sync means the editor catches mistakes before runtime.
+// Mirrors the backend's Pydantic schemas.
 
 export interface Source {
   page: number;
@@ -21,14 +19,6 @@ export interface ChatResponse {
   sources: Source[];
 }
 
-// A message shown in the chat UI (user or assistant).
-export interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  sources?: Source[];
-}
-
 export interface DocumentItem {
   document_id: string;
   filename: string;
@@ -44,4 +34,15 @@ export interface HistoryItem {
   answer: string;
   sources: Source[];
   created_at: string;
+}
+
+// A message in the chat UI.
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  sources?: Source[];
+  status?: "searching" | "streaming" | "done" | "error" | "stopped";
+  error?: string;
+  question?: string; // on assistant messages: the question, for Retry
 }
