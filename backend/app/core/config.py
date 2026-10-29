@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     chunk_overlap: int = 150
     top_k: int = 4
 
+    # --- Upload limits ---
+    max_upload_mb: int = 25
+
     # --- Model names ---
     gemini_chat_model: str = "gemini-2.5-flash"
     gemini_embed_model: str = "gemini-embedding-001"

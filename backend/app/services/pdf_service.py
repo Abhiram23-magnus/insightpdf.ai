@@ -43,7 +43,23 @@ def extract_pages(pdf_path: str) -> list[dict]:
     We keep the page number so that later we can tell the user
     EXACTLY which page an answer came from (the "Sources" feature).
     """
-    reader = PdfReader(pdf_path)
+    try:
+        reader = PdfReader(pdf_path)
+    except Exception:  # noqa: BLE001
+        raise ValueError(
+            "This file couldn't be read as a PDF. It may be damaged — try exporting it again."
+        )
+
+    if reader.is_encrypted:
+        # Many "encrypted" PDFs only restrict printing and open with an empty password.
+        try:
+            if not reader.decrypt(""):
+                raise ValueError
+        except Exception:  # noqa: BLE001
+            raise ValueError(
+                "This PDF is password-protected. Remove the password and upload it again."
+            )
+
     pages: list[dict] = []
 
     for page_number, page in enumerate(reader.pages, start=1):

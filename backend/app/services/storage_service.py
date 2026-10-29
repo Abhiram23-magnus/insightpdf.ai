@@ -90,6 +90,21 @@ def get_document(document_id: str) -> dict | None:
     return None
 
 
+def delete_document(document_id: str) -> bool:
+    """Remove a document's metadata and its chat history. Returns False if unknown."""
+    with _lock:
+        docs = _read_json(_docs_path())
+        remaining = [d for d in docs if d["document_id"] != document_id]
+        if len(remaining) == len(docs):
+            return False
+        _write_json(_docs_path(), remaining)
+        history = _read_json(_history_path())
+        _write_json(
+            _history_path(), [h for h in history if h["document_id"] != document_id]
+        )
+    return True
+
+
 # ---------- Chat history ----------
 
 def save_history(document_id: str, question: str, answer: str, sources: list[dict]) -> dict:

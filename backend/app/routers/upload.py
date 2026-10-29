@@ -47,7 +47,18 @@ async def upload_pdf(file: UploadFile = File(...)) -> UploadResponse:
     try:
         contents = await file.read()
         if not contents:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+            raise HTTPException(status_code=400, detail="This file is empty.")
+        if len(contents) > settings.max_upload_mb * 1024 * 1024:
+            raise HTTPException(
+                status_code=413,
+                detail=f"This file is larger than {settings.max_upload_mb} MB. Try a smaller PDF.",
+            )
+        # Check the real file content, not just the .pdf name.
+        if not contents[:1024].lstrip().startswith(b"%PDF"):
+            raise HTTPException(
+                status_code=400,
+                detail="This file isn't a real PDF, even though its name ends in .pdf.",
+            )
         with open(saved_path, "wb") as f:
             f.write(contents)
     except HTTPException:
@@ -98,6 +109,34 @@ def list_documents() -> DocumentsResponse:
     docs = storage_service.list_documents()
     items = [DocumentItem(**d) for d in docs]
     return DocumentsResponse(items=items)
+
+
+@router.get("/limits")
+def get_limits() -> dict:
+    """Upload limits, so the frontend shows the real value instead of a hardcoded one."""
+    return {"max_upload_mb": get_settings().max_upload_mb}
+
+
+@router.delete("/documents/{document_id}")
+def delete_document(document_id: str) -> dict:
+    """Delete a document: its file, its vectors, its metadata and its chat history."""
+    try:
+        uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    if not storage_service.delete_document(document_id):
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    settings = get_settings()
+    pdf_service.delete_pdf_file(os.path.join(settings.upload_dir, f"{document_id}.pdf"))
+    try:
+        from app.services.vector_store import get_vector_store
+
+        get_vector_store().delete_document(document_id)
+    except Exception:  # noqa: BLE001
+        pass  # metadata is gone, so orphaned vectors can never be searched
+    return {"deleted": document_id}
 
 
 @router.get("/file/{document_id}")
