@@ -6,6 +6,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import ProductPreview from "@/components/landing/ProductPreview";
 import Reveal from "@/components/landing/Reveal";
 import WakeServer from "@/components/landing/WakeServer";
+import AuthLink from "@/components/landing/AuthLink";
 
 const features = [
   {
@@ -58,7 +59,7 @@ export default function LandingPage() {
             <a href="#how" className="hidden text-sm font-medium text-muted hover:text-ink sm:inline">How it works</a>
             <a href="#privacy" className="hidden text-sm font-medium text-muted hover:text-ink sm:inline">Privacy</a>
             <ThemeToggle />
-            <Link href="/library" className={buttonClass("secondary", "sm")}>Open workspace</Link>
+            <AuthLink />
           </div>
         </nav>
       </header>
@@ -88,15 +89,15 @@ export default function LandingPage() {
             </Reveal>
             <Reveal delay={0.28}>
               <div className="flex flex-wrap items-center gap-3">
-                <Link href="/library" className={buttonClass("primary", "lg")}>
+                <Link href="/signin?mode=signup" className={buttonClass("primary", "lg")}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 16V4M6 10l6-6 6 6M4 20h16" /></svg>
-                  Upload a PDF
+                  Get started free
                 </Link>
                 <a href="#how" className={buttonClass("secondary", "lg")}>See how it works</a>
               </div>
             </Reveal>
             <Reveal delay={0.36}>
-              <p className="text-[13px] text-faint">Free to try · Text-based PDFs work best · No sign-up</p>
+              <p className="text-[13px] text-faint">Free account · Your library stays private · Text-based PDFs work best</p>
             </Reveal>
           </div>
 
@@ -156,14 +157,15 @@ export default function LandingPage() {
           <div className="mx-auto flex max-w-6xl flex-wrap gap-10 px-6 py-20">
             <Reveal className="flex flex-[1_1_320px] flex-col gap-2.5">
               <h2 className="text-[32px] font-semibold tracking-[-0.02em]">What happens to your file</h2>
-              <p className="text-base leading-relaxed text-muted">A plain account, with nothing overstated.</p>
+              <p className="text-base leading-relaxed text-muted">A plain description, with nothing overstated.</p>
             </Reveal>
             <Reveal delay={0.1} className="flex-[2_1_480px]">
               <ul className="flex flex-col gap-4">
                 {[
-                  "Your PDF is stored on our server so you can come back to it. There are no accounts yet, so anyone who has a document's link can open it — don't upload anything confidential.",
+                  "Your PDFs, their passages and your chats are tied to your account. Each request is checked against your sign-in, and the database itself refuses to show one person's data to anyone else.",
+                  "The original file is kept in private storage (Supabase), so it's still there next time you sign in. The viewer opens it through a link that expires after an hour.",
                   "To answer a question, the most relevant passages are sent to Google Gemini. The whole file is never sent at once.",
-                  "Delete a document and its file, text, index and chat history are removed. The free server may also clear files when it restarts.",
+                  "Delete a document and its file, passages and chat history are removed for good.",
                 ].map((text) => (
                   <li key={text} className="flex gap-3 text-[15px] leading-relaxed text-ink/90">
                     <svg className="mt-1 shrink-0 text-success" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>

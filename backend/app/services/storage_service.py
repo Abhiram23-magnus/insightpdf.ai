@@ -1,132 +1,153 @@
 """
 storage_service.py
 ------------------
-A deliberately SIMPLE storage layer for two things:
-  1. Document metadata (filename, page count, etc.)
-  2. Chat history (every question/answer pair)
+Documents, chat history and the original PDF files, stored on Supabase.
 
-For a beginner project we avoid setting up a full SQL database and just use
-two JSON files on disk. This keeps the focus on learning RAG. The functions
-below are the only place that touches those files, so if you later upgrade to
-SQLite or Postgres you only change THIS file.
+  documents  (Postgres table)  one row per uploaded PDF
+  messages   (Postgres table)  every question/answer pair, per document
+  pdfs       (private bucket)  the original file at {user_id}/{document_id}/original.pdf
 
-NOTE ON CONCURRENCY: JSON files are fine for a single-user learning app.
-For production with many simultaneous users, switch to a real database.
+Every function takes the signed-in user's token, so Postgres row-level
+security and the bucket policies only ever let a user touch their own data.
 """
 
 from __future__ import annotations
 
-import json
-import os
-import threading
 from datetime import datetime, timezone
 
-from app.core.config import get_settings
-
-# A lock so two requests don't corrupt the JSON files by writing at once.
-_lock = threading.Lock()
+from app.services import supabase_client as sb
 
 
-def _data_dir() -> str:
-    settings = get_settings()
-    # Store the JSON files next to the chroma data.
-    path = os.path.join(settings.chroma_dir, "_meta")
-    os.makedirs(path, exist_ok=True)
-    return path
+def storage_path(user_id: str, document_id: str) -> str:
+    return f"{user_id}/{document_id}/original.pdf"
 
 
-def _docs_path() -> str:
-    return os.path.join(_data_dir(), "documents.json")
-
-
-def _history_path() -> str:
-    return os.path.join(_data_dir(), "history.json")
-
-
-def _read_json(path: str) -> list:
-    if not os.path.exists(path):
-        return []
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return []
-
-
-def _write_json(path: str, data: list) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _doc_out(row: dict) -> dict:
+    return {
+        "document_id": row["id"],
+        "filename": row["filename"],
+        "num_pages": row.get("page_count") or 0,
+        "num_chunks": row.get("chunk_count") or 0,
+        "file_size_bytes": row.get("file_size_bytes") or 0,
+        "status": row.get("status") or "ready",
+        "created_at": row["created_at"],
+    }
 
 
 # ---------- Documents ----------
 
-def save_document(document_id: str, filename: str, num_pages: int, num_chunks: int) -> dict:
-    record = {
-        "document_id": document_id,
-        "filename": filename,
-        "num_pages": num_pages,
-        "num_chunks": num_chunks,
-        "created_at": _now_iso(),
-    }
-    with _lock:
-        docs = _read_json(_docs_path())
-        docs.append(record)
-        _write_json(_docs_path(), docs)
-    return record
+def create_document(
+    token: str, user_id: str, document_id: str, filename: str, size: int, checksum: str
+) -> dict:
+    rows = sb.insert(
+        token,
+        "documents",
+        {
+            "id": document_id,
+            "user_id": user_id,
+            "filename": filename[:255],
+            "storage_path": storage_path(user_id, document_id),
+            "file_size_bytes": size,
+            "checksum": checksum,
+            "status": "processing",
+        },
+    )
+    return rows[0]
 
 
-def list_documents() -> list[dict]:
-    return _read_json(_docs_path())
+def mark_ready(token: str, document_id: str, num_pages: int, num_chunks: int) -> None:
+    sb.update(
+        token,
+        "documents",
+        {"id": f"eq.{document_id}"},
+        {
+            "status": "ready",
+            "page_count": num_pages,
+            "chunk_count": num_chunks,
+            "processed_at": datetime.now(timezone.utc).isoformat(),
+            "error": None,
+        },
+    )
 
 
-def get_document(document_id: str) -> dict | None:
-    for d in _read_json(_docs_path()):
-        if d["document_id"] == document_id:
-            return d
-    return None
+def count_documents(token: str) -> int:
+    return len(sb.select(token, "documents", {"select": "id"}))
 
 
-def delete_document(document_id: str) -> bool:
-    """Remove a document's metadata and its chat history. Returns False if unknown."""
-    with _lock:
-        docs = _read_json(_docs_path())
-        remaining = [d for d in docs if d["document_id"] != document_id]
-        if len(remaining) == len(docs):
-            return False
-        _write_json(_docs_path(), remaining)
-        history = _read_json(_history_path())
-        _write_json(
-            _history_path(), [h for h in history if h["document_id"] != document_id]
-        )
+def find_by_checksum(token: str, checksum: str) -> dict | None:
+    rows = sb.select(
+        token,
+        "documents",
+        {"select": "*", "checksum": f"eq.{checksum}", "status": "eq.ready", "limit": "1"},
+    )
+    return _doc_out(rows[0]) if rows else None
+
+
+def list_documents(token: str) -> list[dict]:
+    rows = sb.select(
+        token,
+        "documents",
+        {"select": "*", "status": "eq.ready", "order": "created_at.desc"},
+    )
+    return [_doc_out(r) for r in rows]
+
+
+def get_document(token: str, document_id: str) -> dict | None:
+    rows = sb.select(token, "documents", {"select": "*", "id": f"eq.{document_id}", "limit": "1"})
+    return rows[0] if rows else None
+
+
+def delete_document(token: str, document_id: str) -> bool:
+    """Remove the file, then the row (passages and chat history cascade with it)."""
+    row = get_document(token, document_id)
+    if row is None:
+        return False
+    try:
+        sb.remove_object(token, row["storage_path"])
+    except sb.SupabaseError:
+        pass  # the row below is what makes the document reachable; remove it regardless
+    sb.delete(token, "documents", {"id": f"eq.{document_id}"})
     return True
+
+
+def storage_used(token: str) -> int:
+    try:
+        return int(sb.rpc(token, "my_storage_bytes", {}) or 0)
+    except (sb.SupabaseError, TypeError, ValueError):
+        return 0
+
+
+# ---------- Files ----------
+
+def upload_pdf(token: str, user_id: str, document_id: str, data: bytes) -> None:
+    sb.upload_object(token, storage_path(user_id, document_id), data, "application/pdf")
+
+
+def file_url(token: str, document: dict) -> str:
+    return sb.signed_url(token, document["storage_path"], expires_in=3600)
 
 
 # ---------- Chat history ----------
 
-def save_history(document_id: str, question: str, answer: str, sources: list[dict]) -> dict:
-    import uuid
+def save_history(
+    token: str, user_id: str, document_id: str, question: str, answer: str, sources: list[dict]
+) -> dict:
+    rows = sb.insert(
+        token,
+        "messages",
+        {
+            "document_id": document_id,
+            "user_id": user_id,
+            "question": question,
+            "answer": answer,
+            "sources": sources,
+        },
+    )
+    return rows[0]
 
-    record = {
-        "id": str(uuid.uuid4()),
-        "document_id": document_id,
-        "question": question,
-        "answer": answer,
-        "sources": sources,
-        "created_at": _now_iso(),
-    }
-    with _lock:
-        history = _read_json(_history_path())
-        history.append(record)
-        _write_json(_history_path(), history)
-    return record
 
-
-def list_history(document_id: str | None = None) -> list[dict]:
-    history = _read_json(_history_path())
+def list_history(token: str, document_id: str | None = None) -> list[dict]:
+    params = {"select": "*", "order": "created_at.asc"}
     if document_id:
-        history = [h for h in history if h["document_id"] == document_id]
-    return history
+        params["document_id"] = f"eq.{document_id}"
+    return sb.select(token, "messages", params)

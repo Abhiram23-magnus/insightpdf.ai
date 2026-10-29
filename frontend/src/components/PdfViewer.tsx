@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { pdfFileUrl } from "@/lib/api";
+import { getPdfUrl } from "@/lib/api";
 import { buttonClass } from "@/components/ui";
 
 export default function PdfViewer({
@@ -29,6 +29,26 @@ export default function PdfViewer({
   const [inline, setInline] = useState<boolean | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [draft, setDraft] = useState(String(page));
+  const [url, setUrl] = useState<string | null>(null);
+  const [urlError, setUrlError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+
+  // The file is private: ask the server for a signed link (valid 1 hour) and
+  // renew it a little before it expires.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    setUrlError(false);
+    getPdfUrl(documentId, ctrl.signal)
+      .then(setUrl)
+      .catch((err) => {
+        if (!(err instanceof DOMException && err.name === "AbortError")) setUrlError(true);
+      });
+    const renew = setTimeout(() => setAttempt((a) => a + 1), 50 * 60 * 1000);
+    return () => {
+      ctrl.abort();
+      clearTimeout(renew);
+    };
+  }, [documentId, attempt]);
 
   useEffect(() => setDraft(String(page)), [page]);
 
@@ -39,8 +59,7 @@ export default function PdfViewer({
     setInline(nav.pdfViewerEnabled ?? !coarse);
   }, []);
 
-  const url = pdfFileUrl(documentId);
-  const src = `${url}#page=${page}`;
+  const src = url ? `${url}#page=${page}` : undefined;
 
   function go(e: React.FormEvent) {
     e.preventDefault();
@@ -64,14 +83,23 @@ export default function PdfViewer({
           <span>/ {pageCount || "—"}</span>
         </form>
         <span className="hidden text-xs text-faint xl:inline">Zoom and search are in the viewer toolbar</span>
-        <a href={src} target="_blank" rel="noreferrer" className={`ml-auto ${buttonClass("ghost", "sm")}`}>
+        <a href={src} target="_blank" rel="noreferrer" aria-disabled={!src} className={`ml-auto ${buttonClass("ghost", "sm")} ${src ? "" : "pointer-events-none opacity-50"}`}>
           Open in new tab
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9" /></svg>
         </a>
       </div>
 
       <div className="relative min-h-0 flex-1">
-        {inline === false ? (
+        {urlError ? (
+          <div className="grid h-full place-items-center p-6 text-center">
+            <div>
+              <p className="font-medium">Couldn&apos;t load the PDF</p>
+              <button type="button" onClick={() => setAttempt((a) => a + 1)} className={`mt-3 ${buttonClass("secondary", "sm")}`}>Try again</button>
+            </div>
+          </div>
+        ) : !src ? (
+          <div className="absolute inset-0 grid place-items-center text-sm text-muted" role="status">Loading PDF…</div>
+        ) : inline === false ? (
           <div className="grid h-full place-items-center p-6">
             <div className="max-w-xs text-center">
               <p className="font-medium">Your browser can&apos;t show the PDF here</p>

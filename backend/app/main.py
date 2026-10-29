@@ -23,7 +23,7 @@ settings = get_settings()
 app = FastAPI(
     title="InsightPDF AI",
     description="Upload PDFs and ask questions about them using AI (RAG).",
-    version="1.0.0",
+    version="2.0.0",
 )
 
 # --- CORS ---

@@ -2,20 +2,18 @@
 # Import via render.com → New → Blueprint → pick this repo.
 #
 # After import, set these in the Render dashboard (Service → Environment):
-#   GOOGLE_API_KEY    = your Gemini key
-#   FRONTEND_ORIGINS  = comma-separated list of frontend URLs (e.g. https://insightpdf-ai.vercel.app)
+#   GOOGLE_API_KEY            = your Gemini key
+#   FRONTEND_ORIGINS          = comma-separated frontend URLs (e.g. https://insightpdf-ai.vercel.app)
+#   SUPABASE_URL              = https://<project-ref>.supabase.co
+#   SUPABASE_PUBLISHABLE_KEY  = the project's publishable (public) key
 #
-# Free plan notes:
-#   - The free Web Service sleeps after 15 min idle; the first request then
-#     takes ~1 minute while it wakes up.
-#   - Free services can't have a persistent disk, so uploaded PDFs and their
-#     vectors are wiped whenever the service restarts or redeploys. Users just
-#     re-upload. To keep data, upgrade to Starter and add:
-#         disk:
-#           name: data
-#           mountPath: /var/data
-#           sizeGB: 1
-#     then set UPLOAD_DIR=/var/data/uploads and CHROMA_DIR=/var/data/chroma_db.
+# Data lives in Supabase (accounts, private PDF storage, Postgres + pgvector),
+# so nothing is lost when this free service sleeps, restarts or redeploys.
+# No service-role key is needed: every request runs as the signed-in user,
+# and row-level security keeps each user's data private.
+#
+# Free plan note: the service sleeps after 15 min idle; the first request then
+# takes ~1 minute while it wakes up.
 
 services:
   - type: web
@@ -31,10 +29,10 @@ services:
         sync: false
       - key: FRONTEND_ORIGINS
         sync: false
-      - key: UPLOAD_DIR
-        value: uploads
-      - key: CHROMA_DIR
-        value: chroma_db
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
       - key: GEMINI_CHAT_MODEL
         value: gemini-2.5-flash
       - key: GEMINI_EMBED_MODEL

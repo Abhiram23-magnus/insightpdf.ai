@@ -67,6 +67,8 @@ class DocumentItem(BaseModel):
     filename: str
     num_pages: int
     num_chunks: int
+    file_size_bytes: int = 0
+    status: str = "ready"
     created_at: str
 
 
